@@ -1,0 +1,11 @@
+# The layer a profile applies when it lists this bundle: one insert row that
+# mounts the memory plugin. Deployment-varying values (mem0 endpoint, user id,
+# pending-queue directory, feature switches) live in this row's config; the API
+# key is resolved through ctx.credentials, never written here.
+- insert:
+    - id: memory-core
+      name: dsh-memory
+      config:
+        recall: true
+        capture: true
+        pendingTtlDays: 7
