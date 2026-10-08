@@ -26,6 +26,7 @@ import { resolveMem0Credentials } from './credentials.ts'
 import { createMem0Client, type Mem0Client } from './mem0.ts'
 import { createQueue } from './queue.ts'
 import { renderBriefInjection, renderRecallInjection } from './recall.ts'
+import { registerPendingRoute } from './route.ts'
 import { registerReviewTool } from './review.ts'
 import { registerSkill } from './skill.ts'
 import { registerMemoryTools } from './tools.ts'
@@ -109,6 +110,9 @@ export function apply(ctx: Context, config: Config): void {
   registerMemoryTools(ctx, { client })
   registerReviewTool(ctx, { queue, client })
   registerSkill(ctx, 'dsh-memory')
+  // The sidebar tab reads and writes the same queue through this route; a host
+  // without a webServer simply never gets it.
+  registerPendingRoute(ctx, { queue, client })
 
   // This turn's text, keyed by session: Stop cannot read a conversation, and the
   // pre-step payload is the one place the turn's words are handed to us.
