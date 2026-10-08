@@ -50,6 +50,14 @@ Status: proposed
 - 迁移方式是**一步切换**：插件完整可用（含 Tab 审批）后从 profile 移除 `mcp-mem0`。
 - 切换前必须跑一次一致性核对：同一 `query` 下插件工具与 MCP 工具返回同一结果集。
 
+### 交付与安装
+
+- 本包既是 host bundle 又带 client Tab：`package.json` 需要 `dsh.bundle.patch`（host 侧装配）与 `dsh.client`（客户端清单：`inject` 与 `platform`），Tab 才会随包渲染。
+- 安装由 profile 的依赖与 `dsh.profile.bundles` 列表共同决定，GUI 与 CLI 是两条不同入口：
+  - `desktop` profile（Electron 宿主）只能经 GUI 的插件入口安装——CLI 明确拒绝：实测 `dsh plugin --profile desktop list` 返回 `error: profile "desktop" is managed exclusively by the Electron application`。
+  - 非 Electron profile（如 `web`）：`cd ~/.dsh && dsh plugin --profile web add <spec>`；该命令实测是 pnpm 的包装（`--help` 直接转发 pnpm 11.7.0）。
+- GUI 的插件管理器内部同样跑 pnpm：`.plugin-manager/logs/operation-*/pnpm.log` 可见 `+ dsh-native-hooks github:qianmang1/dsh-native-hooks` 与 `Done in 5s using pnpm v11.7.0`。它会规范化依赖串——手工写入的 `github:…#v0.3.0` 会被改写回不带 tag 的形式。
+
 ## Alternatives considered
 
 ### Why not 继续用 Python MCP 桥？
@@ -80,6 +88,7 @@ Status: proposed
 - 召回：SessionStart 注入 ≤1200 字符；UserPromptSubmit 注入 ≤600 字符；两处失败都不阻断会话。
 - 侧边栏「记忆待审」页可 approve / dismiss，操作后队列文件与 mem0 同步更新。
 - 移除 `mcp-mem0` 条目后功能不缺失；`cordis.patch.yml` 中不再出现明文 key。
+- 安装路径可达：经 GUI 插件入口装入 desktop profile 后 Tab 出现在侧边栏；经 CLI 装入 web profile 后 host 侧能力可用。
 
 ## Risks
 
@@ -88,3 +97,4 @@ Status: proposed
 - mem0 REST 契约已在 2026-10-08 实测（端点、鉴权头、响应结构、`infer` 开关），但 `threshold` 的合适取值尚未标定，需在一致性核对时确定。
 - `Stop` 钩子内 `ctx.llm` 是否可用未验证；不可用时退回启发式打分，候选质量下降。
 - 迁移期两套工具并存的时间窗虽然短，仍需对齐命名，避免模型混用。
+- CLI 与宿主版本不一致：npm 全局 `dsh` 为 `0.1.7-rc.2`，而 GUI 宿主满足 `dsh-better-sidebar@0.24.1` 的 `≥0.2.0-rc.1` 下限。CLI 的版本不能用来判断宿主能力，也不要用它去操作 desktop profile（会被拒绝）。
