@@ -5,14 +5,18 @@
  * the browser side has no filesystem, and the route is where approve/dismiss
  * reuse the same decision flow as the tool.
  *
- * `ctx.betterSidebar` is addressed through a narrow local interface. Declaring
- * the real package as a dependency would make `dsh-better-sidebar` a build
- * requirement of this plugin, when it is meant to be optional: without it the
- * tools, hooks, and queue all still work, and the reviewer uses `memory_review`.
+ * `ctx.betterSidebar` stays optional at runtime: it is reached with `ctx.get`,
+ * never `inject`, so a host without the sidebar keeps the tools, hooks, and
+ * queue (the reviewer then uses `memory_review`). That optionality lives in the
+ * runtime lookup only — the descriptor and props types come from
+ * `dsh-better-sidebar` itself (a devDependency, absent from the published
+ * manifest), so a renamed field fails `npm run typecheck` instead of silently
+ * rendering nothing.
  * @module dsh-memory/client
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import type { TabComponentProps, TabDescriptor } from 'dsh-better-sidebar'
 
 /** One candidate as the route serializes it. */
 interface PendingEntryView {
@@ -92,10 +96,15 @@ export function usePendingQueue(): {
   return { entries, message, busy, refresh, decide }
 }
 
-/** Props every sidebar tab receives. */
-export interface TabProps {
-  scope?: { sessionId?: string }
-}
+/**
+ * Props every sidebar tab receives, narrowed to what this tab reads.
+ *
+ * Typed against the sidebar's own declaration so a field rename in
+ * `dsh-better-sidebar` fails `npm run typecheck` instead of silently rendering
+ * an empty value. `SessionScope.sessionId` is required there; this component
+ * treats it as optional because `scope` arrives from the host at render time.
+ */
+export type TabProps = Pick<TabComponentProps, 'scope'>
 
 /** The registered tab body. */
 export function MemoryPendingTab({ scope }: TabProps): ReactNode {
@@ -135,15 +144,9 @@ export function MemoryPendingTab({ scope }: TabProps): ReactNode {
   )
 }
 
-/** The `ctx.betterSidebar` surface this module uses. */
-interface BetterSidebarService {
-  registerTab(descriptor: {
-    id: string
-    title: string
-    description?: string
-    order?: number
-    component: (props: TabProps) => unknown
-  }): () => void
+/** The `ctx.betterSidebar` surface this module uses, from the sidebar's own types. */
+type SidebarService = {
+  registerTab(descriptor: TabDescriptor): () => void
 }
 
 /** The client context surface this module touches. */
@@ -160,7 +163,7 @@ export const name = 'memory-tab'
  * @param ctx Client context.
  */
 export function apply(ctx: ClientHost): void {
-  const sidebar = ctx.get?.('betterSidebar') as BetterSidebarService | undefined
+  const sidebar = ctx.get?.('betterSidebar') as SidebarService | undefined
   if (typeof sidebar?.registerTab !== 'function') return
   try {
     const dispose = sidebar.registerTab({

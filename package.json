@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DeepSeek Harness 长期记忆插件：TS 直连自托管 mem0，提供记忆工具、SessionStart 自动召回、Stop 候审队列与侧边栏待审页。",
   "type": "module",
   "main": "lib/index.js",
@@ -72,6 +72,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "dsh-better-sidebar": "^0.24.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsdown": "^0.22.2",

@@ -12,17 +12,29 @@ describe('pending tab', () => {
   it('renders its chrome before any data arrives', () => {
     // react-dom/server runs the component body without effects, which is the one
     // thing verifiable outside a browser: the tab must survive having no data.
-    const html = renderToString(createElement(MemoryPendingTab, {}))
+    // `scope` is required by the sidebar's own TabComponentProps, so the fixture
+    // supplies the host-shaped value rather than an empty object.
+    const html = renderToString(createElement(MemoryPendingTab, { scope: { sessionId: 'sess-abcdef12' } }))
     assert.match(html, /记忆待审/)
     assert.match(html, /刷新/)
   })
 
-  it('shows the session hint when the host supplies one', () => {
+  it('shows which session the queue belongs to', () => {
     const html = renderToString(createElement(MemoryPendingTab, { scope: { sessionId: 'sess-abcdef12' } }))
     // Server rendering inserts `<!-- -->` between text nodes, so assert on the
     // pieces rather than the joined sentence.
     assert.match(html, /会话/)
     assert.match(html, /sess-abc/)
+  })
+
+  it('ignores the scope fields it does not render', () => {
+    // SessionScope carries cwd/repoRoot as well; a tab that only reads sessionId
+    // must stay indifferent to them.
+    const html = renderToString(createElement(MemoryPendingTab, {
+      scope: { sessionId: 'sess-abcdef12', cwd: 'D:\\DSH_work', repoRoot: 'D:\\DSH_work' },
+    }))
+    assert.match(html, /记忆待审/)
+    assert.doesNotMatch(html, /DSH_work/)
   })
 
   it('is a no-op on a client without the sidebar service', () => {
