@@ -46,6 +46,7 @@ node scripts/check.mjs   # 规则骨架自检（技能 frontmatter / 笔记格�
 - **网络**：mem0 调用必须有超时与失败分类（网络 / 鉴权 / 4xx / 5xx）；钩子内失败 fail-open，不阻断会话。
 - **钩子预算**：SessionStart/Stop 的 handle 快速返回（超时即被放弃）；Stop 抽取失败只记日志，不留半条候审项。
 - **UI 通道**：client 侧 Tab 读不到文件系统，必须经 host 暴露的 route/wire；不得把客户端状态当队列的事实源。
+- **依赖未满足 = 静默挂起**：cordis 不会因 `inject` 缺失报错，只会把插件挂起——症状是"服务不存在"（实测漏注册 `@deepseek-ai/dsh-system-prompt` 时 `ToolRuntime` 不发布，`ctx.tools` 为 undefined）。测试 harness 按依赖顺序注册；排查先看 `inject` 链，别先怀疑工具写错。
 
 ## 类型与文档规范
 
