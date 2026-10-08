@@ -16,7 +16,7 @@ dsh-memory：取代"Python MCP 桥 + 手写 AGENTS.md 规则"的组合，用一�
 - `.agents/notes/` — 决策记录（proposed/implemented/rejected/archived × 6 类）。
 - `.agents/skills/` — 本项目技能（`memory-` 前缀）。
 - `scripts/check.mjs` — 规则骨架自检。
-- `lib/` — 构建产物（gitignore；git 安装时由 `prepack` 生成）。
+- `lib/` — 构建产物，**必须提交入库**：`lib/index.js`（host）与 `lib/client.js`（client）。npm 对 git 依赖只跑 `prepare`、**不跑 `prepack`**，所以"装的时候会自动构建"是错的（实测：`npm install github:…` 后 tarball 内 `package/lib/` 条目数为 0）。`prepack` 保留，供 registry 发布路径使用。
 
 ## 命令
 
@@ -47,6 +47,8 @@ node scripts/check.mjs   # 规则骨架自检（技能 frontmatter / 笔记格�
 - **钩子预算**：SessionStart/Stop 的 handle 快速返回（超时即被放弃）；Stop 抽取失败只记日志，不留半条候审项。
 - **UI 通道**：client 侧 Tab 读不到文件系统，必须经 host 暴露的 route/wire；不得把客户端状态当队列的事实源。
 - **依赖未满足 = 静默挂起**：cordis 不会因 `inject` 缺失报错，只会把插件挂起——症状是"服务不存在"（实测漏注册 `@deepseek-ai/dsh-system-prompt` 时 `ToolRuntime` 不发布，`ctx.tools` 为 undefined）。测试 harness 按依赖顺序注册；排查先看 `inject` 链，别先怀疑工具写错。
+- **client 产物必须过加载器契约**：宿主把 `lib/client.js` 字节**原样拼接**进 combo script，用**经典 `<script>`** 注入，产物必须自己调 `window.__ModuleLoader__.load({id, factory})`。所以 client 段只能是 `format: 'cjs'` + banner/footer/intro（照 `deepseek-harness/packages/client/tsdown.client.ts` 的包装），**不能是 ESM**——ESM 顶层 `import` 是硬 `SyntaxError`，会让整个 web boot 失败（实测 `crash-*-web-boot.log`：`web boot: 1 entry did not activate`）。
+- **boot 失败会触发宿主的破坏性恢复**：装载失败时 Electron 弹致命恢复对话框，其中"禁用第三方插件"按钮会调 `sanitizeProfile`——它把用户手写的 `cordis.patch.yml` **整体改名**成 `.bak-<epoch-ms>`，并把 `dsh.profile.bundles` **整体替换**成内置 web 模板（只剩 base + web-app）。即：一个插件装载失败，可能连带清掉其它所有插件。改 client/装配后务必先在本机装上验证，再宣告可用。
 
 ## 类型与文档规范
 

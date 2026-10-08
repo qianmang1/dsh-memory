@@ -25,7 +25,17 @@
       "inject": [],
       "platform": "web"
     },
+    "engines": {
+      "dsh": ">=0.2.0-rc.2"
+    },
     "manifestVersion": 1
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qianmang1/dsh-memory.git"
   },
   "scripts": {
     "build": "tsdown",
