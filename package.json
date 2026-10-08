@@ -11,6 +11,7 @@
   "files": [
     "lib",
     "src",
+    "skill",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"
@@ -37,6 +38,10 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-credentials": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/schemastery": "*"
   },
   "devDependencies": {
