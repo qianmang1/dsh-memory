@@ -1,6 +1,6 @@
 # Agent Note: dsh-memory 的设计与落地边界
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
@@ -10,7 +10,7 @@ Status: proposed
 
 现有实现还有一个静默缺陷（2026-10-08 实测）：`memory_search` 往 `POST /search` 传的是 `limit`，而契约字段是 `top_k`。服务端忽略 `limit`、固定返回默认 20 条，Python 侧再用 `rows[:limit]` 截断，所以表面正常；一旦叠加 `category` / `scope` 过滤，就变成"在最近 20 条里筛"而不是"该分类的前 N 条"，结果静默变少。
 
-## Proposal
+## Decision
 
 一个 bundle 包 `dsh-memory` 承载全部三块：host 侧 `memory-core`（TS 直连 mem0 REST、工具面、SessionStart 召回、Stop 候审、技能注册）与 client 侧 `memory-tab`（侧边栏待审页）。凭据经 `ctx.credentials.resolve()` 读取，配置里不出现 key。写入永不自动落库——批准后才调 mem0。
 
@@ -124,7 +124,19 @@ Status: proposed
 
 人可读性好，但并发写与去重难做对：markdown 没有稳定主键，多会话同时追加会撕裂条目。jsonl 追加 + 派生 md 视图把"机读事实"与"人读视图"分开。
 
-## Acceptance criteria
+## Consequences
+
+落地状态（2026-10-08）：host 侧（工具面、两个钩子、候审队列、技能、候审路由）与 client Tab 都已实现；`npm run typecheck`、`npm test`（76 用例）、`npm run build`（host 51 kB + client 5.5 kB）、`node scripts/check.mjs` 全绿。
+
+实施中测得的、值得记住的事实：
+
+- `ToolRuntime.inject = ['systemPrompt']`：依赖未满足时 cordis **静默挂起**插件，症状是 `ctx.tools` 不存在，而不是一条报错——排查先看 `inject` 链。
+- `Agent` 暴露 `agent.session.header.id`，没有 `agent.sessionId`；`agent/created` 与 `agent/pre-step` 载荷里的 `signal` 是可选的。
+- 宿主 Stop 事件是 `agent/turn-stopping`，**不携带本轮文本**：本轮文本由 `agent/pre-step` 按会话缓存，Stop 时取用。
+- Node 能剥 `.ts` 类型但**不能**处理 `.tsx`：测试跑在 tsx 加载器下，测试文件本身不写 JSX（用 `createElement`）。
+- client 产物必须同时外置 `react` 与 `react/jsx-runtime`：只外置前者时 JSX 运行时被内联，实测产物 35.52 kB → 5.54 kB。
+
+已验收：
 
 - `npm run typecheck && npm test` 通过；`node scripts/check.mjs` 通过。
 - 一致性核对：同一 `query` 下 `memory_recall` 与 MCP `memory_search` 返回同一结果集（切换前执行）；`top_k` 生效（`top_k=2` 返回 2 条）。
@@ -135,7 +147,7 @@ Status: proposed
 - 移除 `mcp-mem0` 条目后功能不缺失；`cordis.patch.yml` 中不再出现明文 key。
 - 安装路径可达：经 GUI 插件入口装入 desktop profile 后 Tab 出现在侧边栏；经 CLI 装入 web profile 后 host 侧能力可用。
 
-## Risks
+### 仍存在的风险
 
 - **一步切换的能力真空**：切换后若某个插件工具缺失或出错，没有 MCP 兜底。缓解：切换前逐工具核对一致性；回滚方式是把 `mcp-mem0` 条目加回 profile patch 并重启。
 - **审批入口依赖第三方插件**：`dsh-better-sidebar` 的 `ctx.betterSidebar` 契约随版本变化，变更会打断 Tab。缓解：host 侧 `memory_review` 提供同等能力。
