@@ -7,7 +7,7 @@ description: DSH 长期记忆管理规则：什么时候写入记忆、什么禁
 
 维护跨会话的长期记忆。核心原则：**记错比不记更糟** —— 错误记忆会持续污染后续所有判断。
 
-本插件提供 7 个 `memory_*` 工具：`memory_remember` / `memory_recall` / `memory_read` / `memory_supersede` / `memory_inventory` / `memory_brief` / `memory_review`。
+本插件提供 8 个 `memory_*` 工具：`memory_remember` / `memory_recall` / `memory_read` / `memory_supersede` / `memory_inventory` / `memory_brief` / `memory_review` / `memory_debug`。
 
 **写入永不自动落库**：Stop 只把候选事实写进候审队列（`~/.dsh/memory-pending/`），批准后才落库。规则本身不依赖具体实现；换后端时按语义重新绑定（见「工具映射」）。
 
@@ -186,13 +186,14 @@ capture → validate → store → retrieve → update → supersede → archive
 
 | 语义动作 | 工具 | 要点 |
 |---|---|---|
-| 写入 | `memory_remember` | 默认 `infer:false` 保真写入；必带 `category` / `scope` / `importance` / `source` |
+| 写入 | `memory_remember` | 默认 `infer:false` 保真写入；建议携带 `category` / `scope` / `importance` |
 | 检索 | `memory_recall` | 自然语言问句；默认排除 historical；可按 `scope` / `category` 过滤 |
 | 取单条 | `memory_read` | 按 id |
 | 盘点 | `memory_inventory` | 可按 `category` / `status` / `scope` / `importance` 过滤 |
 | 取代 | `memory_supersede` | **冲突时唯一正确用法** |
 | 画像 | `memory_brief` | 按分类分组的摘要，可注入上下文 |
 | 候审 | `memory_review` | `list` / `approve` / `dismiss`；批准时先判重，命中则取代 |
+| 诊断 | `memory_debug` | 查看插件最近运行事件（钩子/mem0/队列/决策）；「记忆为什么没生效」先查这里 |
 
 **尚未实现**（本插件 v0.1.0 只有上表）：纠正内容、变更史、删除、遗忘（`expiration_date`）、归档、实体管理、导出、连通性排障。需要这些时用 mem0 的 REST 接口，**不要调用不存在的工具名**。
 

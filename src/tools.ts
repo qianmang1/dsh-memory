@@ -11,12 +11,16 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
 import { buildBrief } from './brief.ts'
+import type { TraceLevel, Tracer } from './debug.ts'
+import { withTrace } from './debug.ts'
 import type { MemoryMetadata, MemoryRow, Mem0Client } from './mem0.ts'
 
 /** The client factory the tools use; resolving inside keeps the key out of long-lived state. */
 export interface ToolDeps {
   /** Build a client for one operation, resolving credentials at that moment. */
   client(): Promise<Mem0Client>
+  /** Optional trace sink; the `memory_debug` tool reads the same ring. */
+  tracer?: Tracer
 }
 
 /** Metadata assembled from the scalar tool parameters. */
@@ -107,11 +111,12 @@ function toListItems(rows: readonly MemoryRow[]): ListItem[] {
 }
 
 /**
- * Register the memory tools.
+ * Register the six memory tools (`memory_debug` lives in the debug component).
  * @param ctx Host context; registrations are effects scoped to it.
- * @param deps Client factory.
+ * @param deps Client factory and the shared trace sink.
+ * @returns How many tools registered, for the boot report.
  */
-export function registerMemoryTools(ctx: Context, deps: ToolDeps): void {
+export function registerMemoryTools(ctx: Context, deps: ToolDeps): number {
   ctx.tools.register(defineTool({
     name: 'memory_remember',
     description: '长期记忆：写入一条事实（默认保真写入，不做 LLM 改写）。用于记住用户明确表达、且跨会话仍然成立的偏好、约束、决策或工作方式。',
@@ -130,13 +135,15 @@ export function registerMemoryTools(ctx: Context, deps: ToolDeps): void {
     },
     isConcurrencySafe: () => true,
     async execute(args) {
-      const client = await deps.client()
-      const rows = await client.remember({
-        text: args.text,
-        metadata: metadataFrom(args),
-        infer: args.infer ?? false,
-      })
-      return { count: rows.length, memories: toListItems(rows), text: renderRows(rows) }
+      return withTrace(deps.tracer, 'tool', 'memory_remember', async () => {
+        const client = await deps.client()
+        const rows = await client.remember({
+          text: args.text,
+          metadata: metadataFrom(args),
+          infer: args.infer ?? false,
+        })
+        return { count: rows.length, memories: toListItems(rows), text: renderRows(rows) }
+      }, (value) => ({ rows: value.count, infer: args.infer ?? false }))
     },
   }))
 
@@ -159,15 +166,17 @@ export function registerMemoryTools(ctx: Context, deps: ToolDeps): void {
     },
     isConcurrencySafe: () => true,
     async execute(args) {
-      const client = await deps.client()
-      const rows = await client.recall({
-        query: args.query,
-        topK: args.top_k ?? 10,
-        ...args.category === undefined ? {} : { category: args.category },
-        ...args.scope === undefined ? {} : { scope: args.scope },
-        ...args.include_historical === undefined ? {} : { includeHistorical: args.include_historical },
-      })
-      return { count: rows.length, memories: toListItems(rows), text: renderRows(rows) }
+      return withTrace(deps.tracer, 'tool', 'memory_recall', async () => {
+        const client = await deps.client()
+        const rows = await client.recall({
+          query: args.query,
+          topK: args.top_k ?? 10,
+          ...args.category === undefined ? {} : { category: args.category },
+          ...args.scope === undefined ? {} : { scope: args.scope },
+          ...args.include_historical === undefined ? {} : { includeHistorical: args.include_historical },
+        })
+        return { count: rows.length, memories: toListItems(rows), text: renderRows(rows) }
+      }, (value) => ({ rows: value.count, topK: args.top_k ?? 10 }))
     },
   }))
 
@@ -195,15 +204,17 @@ export function registerMemoryTools(ctx: Context, deps: ToolDeps): void {
     },
     isConcurrencySafe: () => true,
     async execute(args) {
-      const client = await deps.client()
-      const row = await client.read(args.id)
-      if (row === undefined) return { found: false, text: '没有找到该 id 的记忆。' }
-      return {
-        found: true,
-        id: row.id,
-        memory: row.memory,
-        text: `${row.memory}\n元数据：${JSON.stringify(row.metadata)}`,
-      }
+      return withTrace(deps.tracer, 'tool', 'memory_read', async () => {
+        const client = await deps.client()
+        const row = await client.read(args.id)
+        if (row === undefined) return { found: false, text: '没有找到该 id 的记忆。' }
+        return {
+          found: true,
+          id: row.id,
+          memory: row.memory,
+          text: `${row.memory}\n元数据：${JSON.stringify(row.metadata)}`,
+        }
+      }, (value) => ({ found: value.found, id: args.id.slice(0, 8) }))
     },
   }))
 
@@ -236,17 +247,19 @@ export function registerMemoryTools(ctx: Context, deps: ToolDeps): void {
     },
     isConcurrencySafe: () => false,
     async execute(args) {
-      const client = await deps.client()
-      const result = await client.supersede({
-        oldId: args.old_id,
-        text: args.text,
-        metadata: metadataFrom(args),
-      })
-      return {
-        superseded_id: result.supersededId,
-        count: result.created.length,
-        text: renderRows(result.created),
-      }
+      return withTrace(deps.tracer, 'tool', 'memory_supersede', async () => {
+        const client = await deps.client()
+        const result = await client.supersede({
+          oldId: args.old_id,
+          text: args.text,
+          metadata: metadataFrom(args),
+        })
+        return {
+          superseded_id: result.supersededId,
+          count: result.created.length,
+          text: renderRows(result.created),
+        }
+      }, (value) => ({ superseded: value.superseded_id.slice(0, 8), created: value.count }))
     },
   }))
 
@@ -269,15 +282,17 @@ export function registerMemoryTools(ctx: Context, deps: ToolDeps): void {
     },
     isConcurrencySafe: () => true,
     async execute(args) {
-      const client = await deps.client()
-      const rows = await client.inventory({
-        topK: args.top_k ?? 50,
-        ...args.category === undefined ? {} : { category: args.category },
-        ...args.status === undefined ? {} : { status: args.status },
-        ...args.scope === undefined ? {} : { scope: args.scope },
-        ...args.importance === undefined ? {} : { importance: args.importance },
-      })
-      return { count: rows.length, memories: toListItems(rows), text: renderRows(rows) }
+      return withTrace(deps.tracer, 'tool', 'memory_inventory', async () => {
+        const client = await deps.client()
+        const rows = await client.inventory({
+          topK: args.top_k ?? 50,
+          ...args.category === undefined ? {} : { category: args.category },
+          ...args.status === undefined ? {} : { status: args.status },
+          ...args.scope === undefined ? {} : { scope: args.scope },
+          ...args.importance === undefined ? {} : { importance: args.importance },
+        })
+        return { count: rows.length, memories: toListItems(rows), text: renderRows(rows) }
+      }, (value) => ({ rows: value.count, topK: args.top_k ?? 50 }))
     },
   }))
 
@@ -300,9 +315,13 @@ export function registerMemoryTools(ctx: Context, deps: ToolDeps): void {
     },
     isConcurrencySafe: () => true,
     async execute(args) {
-      const client = await deps.client()
-      const rows = await client.inventory({ topK: 200 })
-      return { count: rows.length, brief: buildBrief(rows, { maxChars: args.max_chars ?? 1200 }) }
+      return withTrace(deps.tracer, 'tool', 'memory_brief', async () => {
+        const client = await deps.client()
+        const rows = await client.inventory({ topK: 200 })
+        return { count: rows.length, brief: buildBrief(rows, { maxChars: args.max_chars ?? 1200 }) }
+      }, (value) => ({ rows: value.count, chars: value.brief.length }))
     },
   }))
+
+  return 6
 }

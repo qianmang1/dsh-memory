@@ -6,6 +6,10 @@
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
+    "./recall": "./lib/recall.js",
+    "./capture": "./lib/capture.js",
+    "./review": "./lib/review.js",
+    "./debug": "./lib/debug-plugin.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },

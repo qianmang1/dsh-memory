@@ -15,6 +15,8 @@
  * @module dsh-memory/mem0
  */
 
+import type { OnEvent } from './debug.ts'
+
 /** Metadata fields this plugin reads and writes; unknown keys are preserved as-is by the service. */
 export interface MemoryMetadata {
   category?: string
@@ -56,6 +58,11 @@ export class Mem0Error extends Error {
   }
 }
 
+/** Type guard so callers can branch on the failure class without try/catch plumbing. */
+export function isMem0Error(error: unknown): error is Mem0Error {
+  return error instanceof Mem0Error
+}
+
 export interface Mem0ClientOptions {
   baseUrl: string
   apiKey: string
@@ -64,6 +71,8 @@ export interface Mem0ClientOptions {
   fetchImpl?: typeof fetch
   /** Per-request budget; hooks pass a tighter value because their handles are abandoned on timeout. */
   timeoutMs?: number
+  /** Trace seam: one event per HTTP exchange. Detail carries timings and sizes, never bodies. */
+  onEvent?: OnEvent
 }
 
 export interface RecallOptions {
@@ -163,9 +172,12 @@ export function filterRows(
 export function createMem0Client(options: Mem0ClientOptions): Mem0Client {
   const doFetch = options.fetchImpl ?? globalThis.fetch
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const emit = options.onEvent
 
   const request = async (method: string, path: string, body?: unknown): Promise<unknown> => {
     const url = `${options.baseUrl}${path}`
+    const started = Date.now()
+    const reqChars = body === undefined ? 0 : JSON.stringify(body).length
     let response: Response
     try {
       response = await doFetch(url, {
@@ -179,6 +191,7 @@ export function createMem0Client(options: Mem0ClientOptions): Mem0Client {
       })
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
+      emit?.('http_error', { method, path, ms: Date.now() - started, kind: 'network', error: reason.slice(0, 200) })
       throw new Mem0Error(`dsh-memory: mem0 请求失败（网络）: ${method} ${path} — ${reason}`, 'network')
     }
     const text = await response.text()
@@ -187,17 +200,26 @@ export function createMem0Client(options: Mem0ClientOptions): Mem0Client {
       const kind: Mem0ErrorKind = response.status === 401 || response.status === 403
         ? 'auth'
         : response.status >= 500 ? 'server' : 'client'
+      emit?.('http_error', {
+        method, path, ms: Date.now() - started, status: response.status, kind, error: detail.slice(0, 200),
+      })
       throw new Mem0Error(
         `dsh-memory: mem0 ${method} ${path} -> HTTP ${response.status}: ${detail}`,
         kind,
         response.status,
       )
     }
-    if (text.trim().length === 0) return {}
+    if (text.trim().length === 0) {
+      emit?.('http', { method, path, ms: Date.now() - started, status: response.status, reqChars, resChars: 0 })
+      return {}
+    }
     try {
-      return JSON.parse(text) as unknown
+      const parsed = JSON.parse(text) as unknown
+      emit?.('http', { method, path, ms: Date.now() - started, status: response.status, reqChars, resChars: text.length })
+      return parsed
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
+      emit?.('http_error', { method, path, ms: Date.now() - started, kind: 'server', error: reason.slice(0, 200) })
       throw new Mem0Error(`dsh-memory: mem0 返回了非 JSON 响应: ${method} ${path} — ${reason}`, 'server')
     }
   }

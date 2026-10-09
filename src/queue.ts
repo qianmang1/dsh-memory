@@ -8,9 +8,9 @@
  *   write leaves at most one malformed trailing line.
  * - A status change rewrites the whole file through a temp file and a rename,
  *   because the line that changes is not the line being added. That is not
- *   concurrency-safe across processes by itself, so it is serialized in-process
- *   and the state machine is idempotent: a lost race costs one transition, not
- *   a corrupted queue.
+ *   concurrency-safe across processes by itself, so writes are serialized per
+ *   directory across every queue instance in-process, and the state machine is
+ *   idempotent: a lost race costs one transition, not a corrupted queue.
  *
  * `pending.md` is a derived view, never a source: approving by editing the
  * markdown would put the decision where no read path looks.
@@ -20,6 +20,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { OnEvent } from './debug.ts'
 import type { MemoryMetadata } from './mem0.ts'
 
 export type PendingStatus = 'pending' | 'approved' | 'dismissed' | 'expired'
@@ -141,24 +142,16 @@ export function parseEntries(text: string): PendingEntry[] {
 
 /**
  * Build the queue over one directory.
- * @param options Directory, TTL, and a clock seam for tests.
+ * @param options Directory, TTL, a clock seam for tests, and an event seam for tracing.
  * @returns The queue.
  */
-export function createQueue(options: { dir: string; ttlDays?: number; now?: () => Date }): PendingQueue {
+export function createQueue(options: { dir: string; ttlDays?: number; now?: () => Date; onEvent?: OnEvent }): PendingQueue {
   const ttlDays = options.ttlDays ?? 7
   const now = options.now ?? (() => new Date())
+  const emit = options.onEvent
   const jsonl = join(options.dir, 'pending.jsonl')
   const markdown = join(options.dir, 'pending.md')
   const archive = join(options.dir, 'archive.jsonl')
-
-  // In-process serialization: concurrent status changes would otherwise read the
-  // same snapshot and the later rename would drop the earlier decision.
-  let chain: Promise<unknown> = Promise.resolve()
-  const serialize = <T>(task: () => Promise<T>): Promise<T> => {
-    const next = chain.then(task, task)
-    chain = next.then(() => undefined, () => undefined)
-    return next
-  }
 
   const readAll = async (): Promise<PendingEntry[]> => {
     try {
@@ -195,14 +188,20 @@ export function createQueue(options: { dir: string; ttlDays?: number; now?: () =
 
     async offer(input) {
       const text = input.text.trim()
-      if (text.length === 0) return undefined
+      if (text.length === 0) {
+        emit?.('offer_skip', { reason: 'empty' })
+        return undefined
+      }
       const hash = hashText(text)
-      return serialize(async () => {
+      return withDirLock(options.dir, async () => {
         await mkdir(options.dir, { recursive: true })
         // Dedupe across every status: a rejected candidate must not come back
         // every turn, and an approved one is already in mem0.
         const existing = await readAll()
-        if (existing.some((entry) => entry.hash === hash)) return undefined
+        if (existing.some((entry) => entry.hash === hash)) {
+          emit?.('offer_duplicate', { confidence: input.confidence, textChars: text.length })
+          return undefined
+        }
         const entry: PendingEntry = {
           id: randomUUID(),
           hash,
@@ -216,6 +215,7 @@ export function createQueue(options: { dir: string; ttlDays?: number; now?: () =
         }
         await appendFile(jsonl, `${JSON.stringify(entry)}\n`, 'utf8')
         await refreshView([...existing, entry])
+        emit?.('offer', { id: entry.id.slice(0, 8), confidence: entry.confidence, textChars: text.length })
         return entry
       })
     },
@@ -223,7 +223,7 @@ export function createQueue(options: { dir: string; ttlDays?: number; now?: () =
     list: async () => readAll(),
 
     async expire() {
-      return serialize(async () => {
+      return withDirLock(options.dir, async () => {
         const entries = await readAll()
         const due = entries.filter((entry) => entry.status === 'pending' && isOverdue(entry))
         if (due.length === 0) return 0
@@ -235,16 +235,20 @@ export function createQueue(options: { dir: string; ttlDays?: number; now?: () =
         await appendFile(archive, `${due.map((entry) => JSON.stringify({ ...entry, status: 'expired', decided_at: stamp })).join('\n')}\n`, 'utf8')
         await writeAll(updated)
         await refreshView(updated)
+        emit?.('expire', { count: due.length })
         return due.length
       })
     },
 
     async decide(id, status, decideOptions = {}) {
-      return serialize(async () => {
+      return withDirLock(options.dir, async () => {
         const entries = await readAll()
         const index = entries.findIndex((entry) => entry.id === id)
         const current = entries[index]
-        if (current === undefined) return undefined
+        if (current === undefined) {
+          emit?.('decide_missing', { id: id.slice(0, 8), to: status })
+          return undefined
+        }
         const updated: PendingEntry = {
           ...current,
           status,
@@ -257,6 +261,12 @@ export function createQueue(options: { dir: string; ttlDays?: number; now?: () =
         next[index] = updated
         await writeAll(next)
         await refreshView(next)
+        emit?.('decide', {
+          id: updated.id.slice(0, 8),
+          from: current.status,
+          to: status,
+          stored: updated.stored_memory_id?.slice(0, 8),
+        })
         return updated
       })
     },
@@ -272,4 +282,19 @@ export function createQueue(options: { dir: string; ttlDays?: number; now?: () =
 /** Human-readable label for a terminal status, used by the review surface. */
 export function statusLabel(status: PendingStatus): string {
   return status === 'pending' ? '待审' : TERMINAL_LABELS[status]
+}
+
+/**
+ * Cross-instance serialization, keyed by directory. Since the component split,
+ * the capture plugin and the review plugin each build their own queue over the
+ * same directory, so the lock lives at module level: concurrent writes from
+ * any instance take their turn before they read the snapshot.
+ */
+const dirChains = new Map<string, Promise<unknown>>()
+function withDirLock<T>(dir: string, task: () => Promise<T>): Promise<T> {
+  const key = process.platform === 'win32' ? dir.toLowerCase() : dir
+  const previous = dirChains.get(key) ?? Promise.resolve()
+  const next = previous.then(task, task)
+  dirChains.set(key, next.then(() => undefined, () => undefined))
+  return next
 }

@@ -16,10 +16,17 @@ const DSH_EXTERNALS = [
 ]
 
 export default defineConfig([
-  // Host half: the plugin row the bundle patch mounts.
+  // Host half: one entry per toggleable component. The bundle patch mounts
+  // these as five rows, each with its own switch in the plugin page.
   {
     name: 'host',
-    entry: { index: 'src/index.ts' },
+    entry: {
+      index: 'src/index.ts',
+      recall: 'src/recall-plugin.ts',
+      capture: 'src/capture-plugin.ts',
+      review: 'src/review-plugin.ts',
+      'debug-plugin': 'src/debug-plugin.ts',
+    },
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',

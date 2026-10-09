@@ -9,7 +9,12 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import * as memoryPlugin from '../src/index.ts'
+import * as memoryCore from '../src/index.ts'
+import * as memoryRecall from '../src/recall-plugin.ts'
+import * as memoryCapture from '../src/capture-plugin.ts'
+import * as memoryReview from '../src/review-plugin.ts'
+import * as memoryDebug from '../src/debug-plugin.ts'
+import { activeBootReporter, clearBootReporter } from '../src/boot.ts'
 import { createMem0Client } from '../src/mem0.ts'
 
 interface Recorded {
@@ -76,6 +81,19 @@ function freshDir(): string {
 }
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }) })
 
+/** Mount the bundle the way the patch does: debug first, then the siblings. */
+async function mountBundle(ctx: Context, options: { debugLog?: boolean } = {}): Promise<string> {
+  const dir = freshDir()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(memoryDebug, { pendingDir: dir, ...options.debugLog === undefined ? {} : { debugLog: options.debugLog } })
+  await ctx.plugin(memoryCore, {})
+  await ctx.plugin(memoryRecall, {})
+  await ctx.plugin(memoryCapture, { pendingDir: dir })
+  await ctx.plugin(memoryReview, { pendingDir: dir })
+  return dir
+}
+
 describe('mem0 client over real HTTP', () => {
   it('sends the measured contract to a live server', async () => {
     const stub = await startStub()
@@ -109,13 +127,11 @@ describe('mem0 client over real HTTP', () => {
 describe('plugin mounting', () => {
   it('registers every tool and survives a missing memory service', async () => {
     const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
     // No credentials service here: the point is that mounting still succeeds and
     // the failure appears where a human can act on it, not at load time.
-    await ctx.plugin(memoryPlugin, { pendingDir: freshDir(), recall: false, capture: false })
+    await mountBundle(ctx)
 
-    for (const tool of ['memory_remember', 'memory_recall', 'memory_read', 'memory_supersede', 'memory_inventory', 'memory_brief', 'memory_review']) {
+    for (const tool of ['memory_remember', 'memory_recall', 'memory_read', 'memory_supersede', 'memory_inventory', 'memory_brief', 'memory_review', 'memory_debug']) {
       assert.ok(ctx.tools.get(tool), `${tool} must be registered`)
     }
 
@@ -129,5 +145,53 @@ describe('plugin mounting', () => {
     const text = JSON.stringify(result.content)
     assert.match(text, /MEM0_API_KEY/, 'the error must name the missing credential')
     assert.match(text, /credentials/, 'and say where to configure it')
+  })
+
+  it('boot report names every module; a failed module records its reason', async () => {
+    const ctx = new Context()
+    // No credentials service on purpose: the boot report must show the
+    // credentials module as failed with the reason, and skip the mem0 ping.
+    await mountBundle(ctx, { debugLog: true })
+
+    // The boot chain runs detached; poll the debug ring until the summary lands.
+    const readDebug = async (): Promise<string> => {
+      const result = await ctx.tools.execute({
+        callId: ToolCallId('boot-check'),
+        name: 'memory_debug',
+        arguments: { limit: 100 },
+        signal: new AbortController().signal,
+      })
+      const blocks = result.content as Array<{ type: string; text?: string }>
+      return blocks.map((block) => block.text ?? '').join('\n')
+    }
+    let text = ''
+    for (let i = 0; i < 50; i++) {
+      text = await readDebug()
+      if (text.includes('自检完成')) break
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    assert.match(text, /boot\/summary/, 'the boot summary must land in the trace ring')
+    for (const module of ['tools', 'skill', 'recall', 'capture', 'review', 'route', 'tracer', 'queue', 'credentials', 'mem0']) {
+      assert.match(text, new RegExp(`boot/${module} `), `module ${module} must be reported`)
+    }
+    assert.match(text, /boot\/credentials \{"state":"fail"/, 'the credential failure must be visible')
+    assert.match(text, /MEM0_API_KEY 凭据/, 'with the actionable reason')
+    assert.match(text, /boot\/mem0 \{"state":"skip"/, 'and the ping must be skipped, not silently dropped')
+  })
+
+  it('without the debug component there is no trace gate, no debug tool, and no boot slot', async () => {
+    // Earlier tests in this file mounted debug and never disposed the context
+    // (test hosts don't); clearing the slot here is exactly what the debug
+    // component's dispose effect does when the toggle turns it off.
+    clearBootReporter()
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(memoryCore, {})
+    await ctx.plugin(memoryReview, { pendingDir: freshDir() })
+
+    assert.equal(ctx.tools.get('memory_debug'), undefined, 'memory_debug belongs to the debug component alone')
+    // Sibling mount lines go nowhere; a healthy boot stays fully silent.
+    assert.equal(activeBootReporter(), undefined, 'no boot reporter without the debug component')
   })
 })

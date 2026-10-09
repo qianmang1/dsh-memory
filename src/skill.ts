@@ -55,14 +55,23 @@ export async function loadSkillBody(): Promise<string | undefined> {
   }
 }
 
+/** Outcome of the registration attempt, for the boot report. */
+export interface SkillRegistration {
+  state: 'ok' | 'warn' | 'fail' | 'skip'
+  detail: string
+}
+
 /**
  * Publish the memory rules when the host exposes a skills service.
  * @param ctx Host context (only `get` and an optional logger are used).
  * @param source Provenance suffix recorded on the summary.
+ * @returns What happened, for the boot self-check report.
  */
-export function registerSkill(ctx: SkillHost, source: string): void {
+export function registerSkill(ctx: SkillHost, source: string): SkillRegistration {
   const skills = ctx.get?.('skills') as SkillServiceSurface | undefined
-  if (typeof skills?.registerProvider !== 'function') return
+  if (typeof skills?.registerProvider !== 'function') {
+    return { state: 'skip', detail: '宿主未提供 skills 服务' }
+  }
   const summary = {
     name: SKILL_NAME,
     description: SKILL_DESCRIPTION,
@@ -87,7 +96,10 @@ export function registerSkill(ctx: SkillHost, source: string): void {
         return body === undefined ? undefined : { ...summary, content: body }
       },
     }))
+    return { state: 'ok', detail: `技能 ${SKILL_NAME} 已注册（provider ${SKILL_PROVIDER}）` }
   } catch (error) {
-    ctx.logger?.warn?.(`dsh-memory: skill registration failed: ${error instanceof Error ? error.message : String(error)}`)
+    const reason = error instanceof Error ? error.message : String(error)
+    ctx.logger?.warn?.(`dsh-memory: skill registration failed: ${reason}`)
+    return { state: 'fail', detail: `注册失败：${reason}` }
   }
 }

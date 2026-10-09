@@ -50,7 +50,7 @@ export async function handlePendingRequest(deps: DecisionDeps, request: PendingR
   }
   const result = request.path.endsWith('/approve')
     ? await approveEntry(deps, id, note)
-    : await dismissEntry(deps.queue, id, note)
+    : await dismissEntry(deps.queue, id, note, deps.tracer)
   return {
     status: result.ok ? 200 : 404,
     body: {
@@ -89,14 +89,23 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   }
 }
 
+/** Outcome of the registration attempt, for the boot report. */
+export interface RouteRegistration {
+  state: 'ok' | 'warn' | 'fail' | 'skip'
+  detail: string
+}
+
 /**
  * Publish the route when the host exposes a webServer.
  * @param ctx Host context (only `get`, an optional `effect`, and a logger are used).
  * @param deps Queue, client factory, and the dedupe threshold.
+ * @returns What happened, for the boot self-check report.
  */
-export function registerPendingRoute(ctx: RouteHost, deps: DecisionDeps): void {
+export function registerPendingRoute(ctx: RouteHost, deps: DecisionDeps): RouteRegistration {
   const webServer = ctx.get?.('webServer') as RouteRegistrar | undefined
-  if (typeof webServer?.register !== 'function') return
+  if (typeof webServer?.register !== 'function') {
+    return { state: 'skip', detail: '宿主未提供 webServer，侧边栏待审页不可用（工具照常）' }
+  }
   try {
     const dispose = webServer.register({
       kind: 'prefix',
@@ -114,7 +123,10 @@ export function registerPendingRoute(ctx: RouteHost, deps: DecisionDeps): void {
       },
     })
     ctx.effect?.(() => dispose, 'dsh-memory: pending review route')
+    return { state: 'ok', detail: `前缀 ${PENDING_PREFIX} 已注册` }
   } catch (error) {
-    ctx.logger?.warn?.(`dsh-memory: 候审路由注册失败: ${error instanceof Error ? error.message : String(error)}`)
+    const reason = error instanceof Error ? error.message : String(error)
+    ctx.logger?.warn?.(`dsh-memory: 候审路由注册失败: ${reason}`)
+    return { state: 'fail', detail: `注册失败：${reason}` }
   }
 }

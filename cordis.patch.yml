@@ -1,11 +1,41 @@
-# The layer a profile applies when it lists this bundle: one insert row that
-# mounts the memory plugin. Deployment-varying values (mem0 endpoint, user id,
-# pending-queue directory, feature switches) live in this row's config; the API
-# key is resolved through ctx.credentials, never written here.
+# The layer a profile applies when it lists this bundle: five insert rows, one
+# per independently toggleable component — the plugin page renders one switch
+# per row, and toggling a row starts or stops exactly that component.
+#
+# memory-debug mounts first so the boot reporter exists before the siblings
+# report their own mount lines. Deployment-varying values live in each row's
+# config; the API key is resolved through ctx.credentials, never written here.
+# `pendingDir` must stay identical across capture / review / debug (empty
+# means $DSH_HOME/memory-pending for all three).
 - insert:
+    - id: memory-debug
+      name: dsh-memory/debug
+      config:
+        debugLog: false
+        pendingDir: ''
     - id: memory-core
       name: dsh-memory
       config:
+        baseUrl: ''
+        userId: ''
+    - id: memory-recall
+      name: dsh-memory/recall
+      config:
+        baseUrl: ''
+        userId: ''
+        brief: true
         recall: true
-        capture: true
+    - id: memory-capture
+      name: dsh-memory/capture
+      config:
+        pendingDir: ''
+        captureThreshold: 0.6
+        maxPerTurn: 5
         pendingTtlDays: 7
+    - id: memory-review
+      name: dsh-memory/review
+      config:
+        baseUrl: ''
+        userId: ''
+        pendingDir: ''
+        dedupeThreshold: 0.8

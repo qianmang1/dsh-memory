@@ -49,7 +49,7 @@ export function registerReviewTool(ctx: Context, deps: ReviewDeps): void {
 
       const result = args.action === 'approve'
         ? await approveEntry(deps, args.id, args.note)
-        : await dismissEntry(deps.queue, args.id, args.note)
+        : await dismissEntry(deps.queue, args.id, args.note, deps.tracer)
       return { text: result.text }
     },
   }))

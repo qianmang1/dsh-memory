@@ -14,6 +14,7 @@
  * @module dsh-memory/decisions
  */
 
+import type { Tracer } from './debug.ts'
 import type { Mem0Client } from './mem0.ts'
 import type { PendingEntry, PendingQueue } from './queue.ts'
 
@@ -22,6 +23,8 @@ export interface DecisionDeps {
   client(): Promise<Mem0Client>
   /** Search score at or above which a hit counts as the same fact. */
   dedupeThreshold?: number
+  /** Optional trace sink; the queue already emits its own transitions. */
+  tracer?: Tracer
 }
 
 /** Outcome of one decision, with text a tool or an HTTP caller can both show. */
@@ -68,39 +71,63 @@ export function pendingView(entries: readonly PendingEntry[]): { entries: Pendin
 export async function approveEntry(deps: DecisionDeps, id: string, decidedBy?: string): Promise<DecisionResult> {
   const entries = await deps.queue.list()
   const entry = findEntry(entries, id)
-  if (entry === undefined) return { ok: false, text: `没有找到候审条目 ${id}。` }
+  if (entry === undefined) {
+    deps.tracer?.log('info', 'decision', 'approve.missing', { id: id.slice(0, 8) })
+    return { ok: false, text: `没有找到候审条目 ${id}。` }
+  }
+  deps.tracer?.log('info', 'decision', 'approve.start', { id: entry.id.slice(0, 8), textChars: entry.text.length })
 
-  const threshold = deps.dedupeThreshold ?? 0.8
-  const record = decidedBy === undefined ? {} : { decidedBy }
-  const client = await deps.client()
-  const hits = await client.recall({ query: entry.text, topK: 3 })
-  const best = hits[0]
+  try {
+    const threshold = deps.dedupeThreshold ?? 0.8
+    const record = decidedBy === undefined ? {} : { decidedBy }
+    const client = await deps.client()
+    const hits = await client.recall({ query: entry.text, topK: 3 })
+    const best = hits[0]
+    deps.tracer?.log('debug', 'decision', 'approve.dedupe', {
+      hits: hits.length,
+      best: best?.id.slice(0, 8),
+      score: best?.score,
+    })
 
-  if (best !== undefined && (best.score ?? 0) >= threshold) {
-    const result = await client.supersede({ oldId: best.id, text: entry.text, metadata: entry.metadata })
-    const created = result.created[0]
+    if (best !== undefined && (best.score ?? 0) >= threshold) {
+      const result = await client.supersede({ oldId: best.id, text: entry.text, metadata: entry.metadata })
+      const created = result.created[0]
+      const updated = await deps.queue.decide(entry.id, 'approved', {
+        supersedes: result.supersededId,
+        ...created === undefined ? {} : { storedMemoryId: created.id },
+        ...record,
+      })
+      deps.tracer?.log('info', 'decision', 'approve.done', {
+        outcome: 'superseded',
+        superseded: result.supersededId.slice(0, 8),
+        stored: created?.id.slice(0, 8),
+      })
+      return {
+        ok: true,
+        text: `已批准并取代 ${result.supersededId.slice(0, 8)}：${entry.text}`,
+        ...updated === undefined ? {} : { entry: updated },
+      }
+    }
+
+    const created = await client.remember({ text: entry.text, metadata: entry.metadata, infer: false })
+    const stored = created[0]
     const updated = await deps.queue.decide(entry.id, 'approved', {
-      supersedes: result.supersededId,
-      ...created === undefined ? {} : { storedMemoryId: created.id },
+      ...stored === undefined ? {} : { storedMemoryId: stored.id },
       ...record,
+    })
+    deps.tracer?.log('info', 'decision', 'approve.done', {
+      outcome: 'created',
+      stored: stored?.id.slice(0, 8),
     })
     return {
       ok: true,
-      text: `已批准并取代 ${result.supersededId.slice(0, 8)}：${entry.text}`,
+      text: stored === undefined ? `已批准并写入：${entry.text}` : `已批准并写入 ${stored.id.slice(0, 8)}：${entry.text}`,
       ...updated === undefined ? {} : { entry: updated },
     }
-  }
-
-  const created = await client.remember({ text: entry.text, metadata: entry.metadata, infer: false })
-  const stored = created[0]
-  const updated = await deps.queue.decide(entry.id, 'approved', {
-    ...stored === undefined ? {} : { storedMemoryId: stored.id },
-    ...record,
-  })
-  return {
-    ok: true,
-    text: stored === undefined ? `已批准并写入：${entry.text}` : `已批准并写入 ${stored.id.slice(0, 8)}：${entry.text}`,
-    ...updated === undefined ? {} : { entry: updated },
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    deps.tracer?.log('warn', 'decision', 'approve.error', { id: entry.id.slice(0, 8), error: message.slice(0, 200) })
+    throw error
   }
 }
 
@@ -111,11 +138,15 @@ export async function approveEntry(deps: DecisionDeps, id: string, decidedBy?: s
  * @param decidedBy Optional note recorded as the decider.
  * @returns The outcome and its narrative.
  */
-export async function dismissEntry(queue: PendingQueue, id: string, decidedBy?: string): Promise<DecisionResult> {
+export async function dismissEntry(queue: PendingQueue, id: string, decidedBy?: string, tracer?: Tracer): Promise<DecisionResult> {
   const entries = await queue.list()
   const entry = findEntry(entries, id)
-  if (entry === undefined) return { ok: false, text: `没有找到候审条目 ${id}。` }
+  if (entry === undefined) {
+    tracer?.log('info', 'decision', 'dismiss.missing', { id: id.slice(0, 8) })
+    return { ok: false, text: `没有找到候审条目 ${id}。` }
+  }
   const updated = await queue.decide(entry.id, 'dismissed', decidedBy === undefined ? {} : { decidedBy })
+  tracer?.log('info', 'decision', 'dismiss.done', { id: entry.id.slice(0, 8) })
   return {
     ok: true,
     text: `已驳回：${entry.text}`,
