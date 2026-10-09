@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Memory Core",
+    "description": "Core of the long-term memory plugin: tools and a skill to save, search, and organize memories. Other components handle automatic recall, capture, and review."
+  }
+}
