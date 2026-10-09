@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Debug & Self-check",
+    "description": "Trace ring buffer, opt-in NDJSON file trace, and per-module startup self-check lines. Disabling this component stops all trace output."
+  }
+}

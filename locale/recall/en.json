@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session Recall",
+    "description": "On session start, retrieve relevant memories for the current context and inject them into the system prompt."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Memory Capture",
+    "description": "Extract candidate memories after each turn by significance threshold and queue them for review."
+  }
+}
