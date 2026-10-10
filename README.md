@@ -101,7 +101,7 @@ node scripts/check.mjs   # 规则骨架自检
 
 ## Web 开发迭代（HMR）
 
-侧边栏 UI 在 `dev/web-ui` 分支开发，web profile 用 `link:` 协议直通工作区：
+web profile 用 `link:` 协议直通工作区（单分支开发，改动检出即生效）：
 
 ```sh
 # profile package.json: "dsh-memory": "link:D:/DSH_work/dsh-memory"（dependencies + dsh.profile.bundles 两处登记）
