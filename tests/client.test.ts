@@ -38,8 +38,10 @@ describe('pending tab', () => {
   })
 
   it('is a no-op on a client without the sidebar service', () => {
+    // With `inject = ['betterSidebar']` a real host would never call apply in
+    // this situation; the guard is defense-in-depth for hand-rolled callers.
     assert.doesNotThrow(() => { apply({}) })
-    assert.doesNotThrow(() => { apply({ get: () => undefined }) })
+    assert.doesNotThrow(() => { apply({ betterSidebar: undefined as never }) })
   })
 
   it('registers one tab and disposes it with the context', () => {
@@ -47,14 +49,14 @@ describe('pending tab', () => {
     let disposed = false
     const effects: Array<() => void> = []
     apply({
-      get: (key: string) => key === 'betterSidebar'
-        ? {
-            registerTab: (tab: { id: string; title: string; order?: number; component: unknown }) => {
-              tabs.push(tab)
-              return () => { disposed = true }
-            },
-          }
-        : undefined,
+      // apply reads the service off the context: inject guarantees presence,
+      // the fixture plays the host that has already provided it.
+      betterSidebar: {
+        registerTab: (tab: { id: string; title: string; order?: number; component: unknown }) => {
+          tabs.push(tab)
+          return () => { disposed = true }
+        },
+      },
       effect: (register: () => () => void) => { effects.push(register()) },
     })
 

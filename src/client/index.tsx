@@ -10,13 +10,14 @@
  * `--dsw-*` alias tokens, so the tab follows the active theme instead of
  * hard-coding colors.
  *
- * `ctx.betterSidebar` stays optional at runtime: it is reached with `ctx.get`,
- * never `inject`, so a host without the sidebar keeps the tools, hooks, and
- * queue (the reviewer then uses `memory_review`). That optionality lives in the
- * runtime lookup only — the descriptor and props types come from
- * `dsh-better-sidebar` itself (a devDependency, absent from the published
- * manifest), so a renamed field fails `npm run typecheck` instead of silently
- * rendering nothing.
+ * Registration follows the ecosystem contract from dsh-better-sidebar's
+ * README: the module declares `inject = ['betterSidebar']`, so cordis holds
+ * this client plugin back until the sidebar has provided its service — its
+ * own activation is async (lazy chunks, panel mount), so a same-tick
+ * `ctx.get` would race it and lose (observed: `undefined` → silent no-tab).
+ * A host without the sidebar keeps the tools, hooks, and queue untouched:
+ * they are server-side; this client plugin just stays pending, which the
+ * runtime reports as a warning, not an error.
  * @module dsh-memory/client
  */
 
@@ -251,6 +252,7 @@ type SidebarService = {
 
 /** The client context surface this module touches. */
 export interface ClientHost {
+  betterSidebar?: SidebarService
   get?(key: string): unknown
   effect?(register: () => () => void, name?: string): unknown
   logger?: { warn?(message: string): unknown }
@@ -259,12 +261,21 @@ export interface ClientHost {
 export const name = 'memory-tab'
 
 /**
- * Register the tab when the sidebar plugin is present.
+ * Ecosystem contract: wait for the sidebar's service instead of racing it.
+ * cordis only runs `apply` once every injected key is provided.
+ */
+export const inject = ['betterSidebar']
+
+/**
+ * Register the tab once the sidebar service is available.
  * @param ctx Client context.
  */
 export function apply(ctx: ClientHost): void {
-  const sidebar = ctx.get?.('betterSidebar') as SidebarService | undefined
-  if (typeof sidebar?.registerTab !== 'function') return
+  const sidebar = ctx.betterSidebar
+  if (typeof sidebar?.registerTab !== 'function') {
+    ctx.logger?.warn?.('dsh-memory: betterSidebar 服务缺失，待审 Tab 未注册')
+    return
+  }
   try {
     const dispose = sidebar.registerTab({
       id: 'dsh-memory:pending',
