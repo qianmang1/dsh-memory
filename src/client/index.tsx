@@ -108,6 +108,8 @@ const styles = {
   },
   spacer: { flex: 1 },
   quiet: { color: 'var(--dsw-alias-label-tertiary)' },
+  /** Small print inside cards (scope line, footer, evidence). */
+  meta: { color: 'var(--dsw-alias-label-tertiary)', fontSize: '11px' },
   secondary: { color: 'var(--dsw-alias-label-secondary)' },
   notice: { color: 'var(--dsw-alias-label-secondary)', marginBottom: '8px' },
   filterRow: { marginBottom: '10px' },
@@ -124,19 +126,19 @@ const styles = {
     display: 'inline-block', flexShrink: 0, fontSize: '10px', color: 'var(--dsw-alias-label-tertiary)',
     transition: 'transform 0.15s ease',
   },
-  itemText: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const, marginBottom: '6px', cursor: 'pointer' as const },
+  itemText: { fontSize: '12px', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const, marginBottom: '6px', cursor: 'pointer' as const },
   clamp: {
     display: '-webkit-box',
     WebkitBoxOrient: 'vertical' as const,
     WebkitLineClamp: 2,
     overflow: 'hidden',
   },
-  footer: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', marginBottom: '8px' },
+  footer: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', marginBottom: '8px' },
   track: {
     width: '56px', height: '4px', borderRadius: 'var(--dsw-radius-sm)',
     background: 'var(--dsw-alias-border-l4)', overflow: 'hidden', flexShrink: 0,
   },
-  evidence: { color: 'var(--dsw-alias-label-tertiary)', fontSize: '12px', marginBottom: '8px' },
+  evidence: { color: 'var(--dsw-alias-label-tertiary)', fontSize: '11px', marginBottom: '8px' },
   actions: { display: 'flex', gap: '8px' },
   empty: { padding: '24px 0', textAlign: 'center' as const },
 }
@@ -290,7 +292,7 @@ export function MemoryPendingTab({ injected }: MemoryTabProps): ReactNode {
               <li key={entry.id} style={styles.card}>
                 <div style={styles.cardHeader} onClick={() => toggle(entry.id)}>
                   <Tag tone="neutral">{meta.category === '' ? '未分类' : enumLabel(CATEGORY_LABELS, meta.category)}</Tag>
-                  {scopeText === '' ? null : <span style={styles.quiet}>{scopeText}</span>}
+                  {scopeText === '' ? null : <span style={styles.meta}>{scopeText}</span>}
                   <div style={styles.spacer} />
                   <span
                     style={{ ...styles.chevron, transform: isExpanded ? 'rotate(90deg)' : 'none' }}
