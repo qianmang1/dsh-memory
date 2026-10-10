@@ -5,6 +5,11 @@
  * the browser side has no filesystem, and the route is where approve/dismiss
  * reuse the same decision flow as the tool.
  *
+ * Visuals come from `@deepseek-ai/dsh-client-ui-primitives` (host-supplied at
+ * runtime — see vendor-types.d.ts and the client build's neverBundle) and
+ * `--dsw-*` alias tokens, so the tab follows the active theme instead of
+ * hard-coding colors.
+ *
  * `ctx.betterSidebar` stays optional at runtime: it is reached with `ctx.get`,
  * never `inject`, so a host without the sidebar keeps the tools, hooks, and
  * queue (the reviewer then uses `memory_review`). That optionality lives in the
@@ -15,8 +20,10 @@
  * @module dsh-memory/client
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { TabComponentProps, TabDescriptor } from 'dsh-better-sidebar'
+import { Button, SegmentedTabs, Tag, TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** One candidate as the route serializes it. */
 interface PendingEntryView {
@@ -38,6 +45,9 @@ interface PendingPayload {
 /** The route this tab calls; same constant the host registers. */
 const PENDING_ENDPOINT = '/memory/pending'
 
+/** Poll cadence for the queue; the tab only refreshes while visible. */
+const POLL_MS = 15_000
+
 async function requestJson(url: string, init?: RequestInit): Promise<PendingPayload> {
   const response = await fetch(url, init)
   const payload = await response.json() as PendingPayload
@@ -47,8 +57,38 @@ async function requestJson(url: string, init?: RequestInit): Promise<PendingPayl
 
 const shortId = (id: string): string => id.slice(0, 6)
 
+/** Colors for the confidence bar, keyed off the --dsw state aliases. */
+function confidenceColor(confidence: number): string {
+  if (confidence >= 0.8) return 'var(--dsw-alias-state-success-primary)'
+  if (confidence >= 0.6) return 'var(--dsw-alias-state-business-primary)'
+  return 'var(--dsw-alias-state-warn-primary)'
+}
+
+/** Alias tokens used by this tab; kept in one place for easy auditing. */
+const styles = {
+  root: { padding: '12px', fontSize: 'var(--dsw-font-xs-13)', lineHeight: 1.6, color: 'var(--dsw-alias-label-primary)' },
+  header: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' },
+  title: { fontWeight: 600 },
+  spacer: { flex: 1 },
+  quiet: { color: 'var(--dsw-alias-label-tertiary)' },
+  secondary: { color: 'var(--dsw-alias-label-secondary)' },
+  notice: { color: 'var(--dsw-alias-label-secondary)', marginBottom: '8px' },
+  filterRow: { marginBottom: '10px' },
+  list: { listStyle: 'none', padding: 0, margin: 0 },
+  item: { borderBottom: '1px solid var(--dsw-alias-border-l2)', padding: '10px 0' },
+  itemText: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const, marginBottom: '4px' },
+  metaRow: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', marginBottom: '6px' },
+  track: {
+    width: '56px', height: '4px', borderRadius: 'var(--dsw-radius-sm)',
+    background: 'var(--dsw-alias-border-l4)', overflow: 'hidden', flexShrink: 0,
+  },
+  actions: { display: 'flex', gap: '8px' },
+  empty: { padding: '24px 0', textAlign: 'center' as const },
+}
+
 /**
- * Fetch the pending view once and after every decision.
+ * Fetch the pending view once, after every decision, and on a visibility-gated
+ * poll so the tab picks up captures made while the user was reading.
  * @returns State and actions for the tab body.
  */
 export function usePendingQueue(): {
@@ -93,6 +133,13 @@ export function usePendingQueue(): {
 
   useEffect(() => { void refresh() }, [refresh])
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh()
+    }, POLL_MS)
+    return () => { clearInterval(timer) }
+  }, [refresh])
+
   return { entries, message, busy, refresh, decide }
 }
 
@@ -109,35 +156,88 @@ export type TabProps = Pick<TabComponentProps, 'scope'>
 /** The registered tab body. */
 export function MemoryPendingTab({ scope }: TabProps): ReactNode {
   const { entries, message, busy, refresh, decide } = usePendingQueue()
+  const [filter, setFilter] = useState<string>('all')
   const session = scope?.sessionId
 
+  const categories = useMemo(() => {
+    const set = new Set<string>()
+    for (const entry of entries) {
+      set.add(String(entry.metadata?.['category'] ?? '未分类'))
+    }
+    return [...set].sort()
+  }, [entries])
+
+  const visible = useMemo(
+    () => filter === 'all' ? entries : entries.filter((entry) => String(entry.metadata?.['category'] ?? '未分类') === filter),
+    [entries, filter],
+  )
+
+  const filterTabs = useMemo(() => {
+    const tabs: [SegmentedTab<string>, ...SegmentedTab<string>[]] = [
+      { value: 'all', label: `全部 ${entries.length}`, id: 'dsh-memory-tab-all', panelId: 'dsh-memory-panel-all' },
+      ...categories.map((category) => ({
+        value: category,
+        label: category,
+        id: `dsh-memory-tab-${category}`,
+        panelId: `dsh-memory-panel-${category}`,
+      })),
+    ]
+    return tabs
+  }, [categories, entries.length])
+
   return (
-    <div style={{ padding: '12px', fontSize: '13px', lineHeight: 1.6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-        <strong>记忆待审</strong>
-        <button type="button" onClick={() => { void refresh() }} disabled={busy}>刷新</button>
+    <div style={styles.root}>
+      <div style={styles.header}>
+        <strong style={styles.title}>记忆待审</strong>
+        {entries.length === 0 ? null : <Tag tone="solid">{entries.length}</Tag>}
+        <div style={styles.spacer} />
+        <Button variant="ghost" size="sm" onClick={() => { void refresh() }} disabled={busy}>刷新</Button>
       </div>
-      {session === undefined ? null : (
-        <div style={{ opacity: 0.6, marginBottom: '8px' }}>会话 {session.slice(0, 8)}</div>
-      )}
-      {message === undefined ? null : <div style={{ opacity: 0.8, marginBottom: '8px' }}>{message}</div>}
-      {entries.length === 0 ? null : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {entries.map((entry) => (
-            <li key={entry.id} style={{ borderTop: '1px solid currentColor', padding: '8px 0' }}>
-              <div>{entry.text}</div>
-              <div style={{ opacity: 0.6, fontSize: '12px' }}>
-                [{shortId(entry.id)}] {String(entry.metadata?.['category'] ?? '未分类')} · conf {entry.confidence.toFixed(2)}
-              </div>
-              {entry.evidence === undefined ? null : (
-                <div style={{ opacity: 0.6, fontSize: '12px' }}>证据：{entry.evidence}</div>
-              )}
-              <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                <button type="button" disabled={busy} onClick={() => { void decide(entry.id, 'approve') }}>批准</button>
-                <button type="button" disabled={busy} onClick={() => { void decide(entry.id, 'dismiss') }}>驳回</button>
-              </div>
-            </li>
-          ))}
+      {session === undefined ? null : <div style={{ ...styles.quiet, marginBottom: '8px' }}>会话 {session.slice(0, 8)}</div>}
+      {message === undefined ? null : <div style={styles.notice}>{message}</div>}
+      {categories.length > 1 ? (
+        <div style={styles.filterRow}>
+          <SegmentedTabs items={filterTabs} value={filter} onChange={setFilter} label="按分类筛选" />
+        </div>
+      ) : null}
+      {busy && entries.length === 0 ? (
+        <TextShimmer active><div style={styles.quiet}>读取待审队列…</div></TextShimmer>
+      ) : entries.length === 0 ? (
+        <div style={{ ...styles.empty, ...styles.quiet }}>
+          队列为空
+          <div style={{ fontSize: '12px', marginTop: '4px' }}>捕获组件产生候选记忆后会出现在这里</div>
+        </div>
+      ) : visible.length === 0 ? (
+        <div style={{ ...styles.empty, ...styles.quiet }}>该分类下没有待审条目</div>
+      ) : (
+        <ul style={styles.list}>
+          {visible.map((entry) => {
+            const category = String(entry.metadata?.['category'] ?? '未分类')
+            return (
+              <li key={entry.id} style={styles.item}>
+                <div style={styles.itemText}>{entry.text}</div>
+                <div style={styles.metaRow}>
+                  <Tag tone="neutral">{category}</Tag>
+                  <span style={styles.quiet} title={`置信度 ${entry.confidence.toFixed(2)}`}>{shortId(entry.id)}</span>
+                  <div style={styles.track} title={`置信度 ${entry.confidence.toFixed(2)}`}>
+                    <div style={{
+                      width: `${Math.round(Math.min(Math.max(entry.confidence, 0), 1) * 100)}%`,
+                      height: '100%',
+                      background: confidenceColor(entry.confidence),
+                    }} />
+                  </div>
+                  <span style={styles.quiet}>conf {entry.confidence.toFixed(2)}</span>
+                </div>
+                {entry.evidence === undefined ? null : (
+                  <div style={{ ...styles.quiet, fontSize: '12px', marginBottom: '6px' }}>证据：{entry.evidence}</div>
+                )}
+                <div style={styles.actions}>
+                  <Button variant="primary" size="sm" disabled={busy} onClick={() => { void decide(entry.id, 'approve') }}>批准</Button>
+                  <Button variant="outline" size="sm" disabled={busy} onClick={() => { void decide(entry.id, 'dismiss') }}>驳回</Button>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

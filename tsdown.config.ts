@@ -63,8 +63,17 @@ export default defineConfig([
     clean: false,
     // React must resolve to the host's copy: a bundled second instance would make
     // every hook in this tab throw "invalid hook call". React and its JSX runtime
-    // are baseline externals the shell seeds into the module table.
-    deps: { neverBundle: ['react', 'react-dom', 'react/jsx-runtime', '@deepseek-ai/cordis'] },
+    // are baseline externals the shell seeds into the module table, as is the
+    // official primitives package (dsh-better-sidebar requires it the same way).
+    deps: {
+      neverBundle: [
+        'react',
+        'react-dom',
+        'react/jsx-runtime',
+        '@deepseek-ai/cordis',
+        '@deepseek-ai/dsh-client-ui-primitives',
+      ],
+    },
     outputOptions: {
       entryFileNames: 'client.js',
       banner: 'window.__ModuleLoader__.load({ id: "dsh-memory", factory: (require) => {',
