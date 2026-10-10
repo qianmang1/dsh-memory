@@ -309,9 +309,9 @@ export function MemoryPendingTab({ injected }: MemoryTabProps): ReactNode {
                   </div>
                   <span style={styles.quiet}>置信度 {percent}%</span>
                 </div>
-                {isExpanded && entry.evidence === undefined ? null : (
+                {isExpanded && entry.evidence !== undefined ? (
                   <div style={styles.evidence}>来源：{entry.evidence}</div>
-                )}
+                ) : null}
                 <div style={styles.actions}>
                   <Button variant="primary" size="sm" disabled={busy} onClick={() => { void decide(entry.id, 'approve') }}>批准</Button>
                   <Button variant="outline" size="sm" disabled={busy} onClick={() => { void decide(entry.id, 'dismiss') }}>驳回</Button>
