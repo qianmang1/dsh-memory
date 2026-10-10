@@ -100,6 +100,12 @@ const styles = {
   root: { padding: '12px', fontSize: 'var(--dsw-font-xs-13)', lineHeight: 1.6, color: 'var(--dsw-alias-label-primary)' },
   header: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' },
   title: { fontWeight: 600 },
+  countBadge: {
+    minWidth: '16px', height: '16px', padding: '0 5px', borderRadius: '8px',
+    background: 'var(--dsw-alias-border-l4)', color: 'var(--dsw-alias-label-secondary)',
+    fontSize: '11px', lineHeight: '16px', textAlign: 'center' as const,
+    display: 'inline-block', flexShrink: 0, boxSizing: 'border-box' as const,
+  },
   spacer: { flex: 1 },
   quiet: { color: 'var(--dsw-alias-label-tertiary)' },
   secondary: { color: 'var(--dsw-alias-label-secondary)' },
@@ -253,7 +259,7 @@ export function MemoryPendingTab({ injected }: MemoryTabProps): ReactNode {
     <div style={styles.root}>
       <div style={styles.header}>
         <strong style={styles.title}>记忆待审</strong>
-        {entries.length === 0 ? null : <Tag tone="solid">{entries.length}</Tag>}
+        {entries.length === 0 ? null : <span style={styles.countBadge}>{entries.length}</span>}
         <div style={styles.spacer} />
         <Button variant="ghost" size="sm" onClick={() => { void refresh() }} disabled={busy}>刷新</Button>
       </div>
