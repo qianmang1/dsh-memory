@@ -45,14 +45,16 @@ describe('pending tab', () => {
   })
 
   it('registers one tab and disposes it with the context', () => {
-    const tabs: Array<{ id: string; title: string; order?: number; component: unknown }> = []
+    // TabDescriptor.title may be a string or a lazy () => string; the fixture
+    // records whichever shape arrives.
+    const tabs: Array<{ id: string; title: string | (() => string); order?: number; component: unknown }> = []
     let disposed = false
     const effects: Array<() => void> = []
     apply({
       // apply reads the service off the context: inject guarantees presence,
       // the fixture plays the host that has already provided it.
       betterSidebar: {
-        registerTab: (tab: { id: string; title: string; order?: number; component: unknown }) => {
+        registerTab: (tab: { id: string; title: string | (() => string); order?: number; component: unknown }) => {
           tabs.push(tab)
           return () => { disposed = true }
         },

@@ -16,8 +16,10 @@ const DSH_EXTERNALS = [
 ]
 
 export default defineConfig([
-  // Host half: one entry per toggleable component. The bundle patch mounts
-  // these as five rows, each with its own switch in the plugin page.
+  // Host half: one entry per toggleable component plus the inert root-row
+  // portal (see src/portal.ts for why the bare `dsh-memory` row must exist).
+  // clean stays off: lib/ also holds the client artifact from the second
+  // config, and a clean here would silently delete it (observed 2026-10-10).
   {
     name: 'host',
     entry: {
@@ -27,6 +29,7 @@ export default defineConfig([
       capture: 'src/capture-plugin.ts',
       review: 'src/review-plugin.ts',
       'debug-plugin': 'src/debug-plugin.ts',
+      portal: 'src/portal.ts',
     },
     outDir: 'lib',
     format: ['esm'],
@@ -34,7 +37,7 @@ export default defineConfig([
     target: 'es2024',
     fixedExtension: false,
     dts: false,
-    clean: true,
+    clean: false,
     external: [...builtinModules, ...builtinModules.map((name) => `node:${name}`), ...DSH_EXTERNALS],
   },
   // Client half: only the sidebar tab.

@@ -7,6 +7,12 @@
 # config; the API key is resolved through ctx.credentials, never written here.
 # `pendingDir` must stay identical across capture / review / debug (empty
 # means $DSH_HOME/memory-pending for all three).
+#
+# The bare `dsh-memory` row is NOT a ninth component: the web client-module
+# scanner only resolves client halves from loader rows named as a bare package
+# specifier, so this inert portal row (src/portal.ts — mounts nothing) is what
+# pulls lib/client.js into the browser boot graph. Without it the sidebar tab
+# never loads.
 - insert:
     - id: memory-debug
       name: dsh-memory/debug
@@ -39,3 +45,5 @@
         userId: ''
         pendingDir: ''
         dedupeThreshold: 0.8
+    - id: memory-root
+      name: dsh-memory
