@@ -21,10 +21,10 @@ dsh-memory：取代"Python MCP 桥 + 手写 AGENTS.md 规则"的组合，用一�
 ## 命令
 
 ```sh
-npm install              # 依赖（首次）
-npm run typecheck        # tsc -p tsconfig.json
-npm test                 # node --test "tests/**/*.test.ts"
-npm run build            # tsdown → lib/index.js
+pnpm install             # 依赖（首次）
+pnpm run typecheck       # tsc -p tsconfig.json
+pnpm test                # node --test "tests/**/*.test.ts"
+pnpm run build           # tsdown → lib/index.js
 node scripts/check.mjs   # 规则骨架自检（技能 frontmatter / 笔记格式 / AGENTS 章节）
 ```
 
@@ -46,7 +46,7 @@ node scripts/check.mjs   # 规则骨架自检（技能 frontmatter / 笔记格�
 - **网络**：mem0 调用必须有超时与失败分类（网络 / 鉴权 / 4xx / 5xx）；钩子内失败 fail-open，不阻断会话。
 - **钩子预算**：SessionStart/Stop 的 handle 快速返回（超时即被放弃）；Stop 抽取失败只记日志，不留半条候审项。
 - **UI 通道**：client 侧 Tab 读不到文件系统，必须经 host 暴露的 route/wire；不得把客户端状态当队列的事实源。
-- **侧边栏 Tab 走 `registerTab`，类型用官方声明**：待审页是一个完整的侧边栏标签页（有自己的面板内容与 `+` 菜单项），注册到 `dsh-better-sidebar`（上游 `omdsh-dev/DSH-better-sidebar`）的 `ctx.betterSidebar.registerTab(TabDescriptor)`，`SidebarTab` 的内容渲染器就是 descriptor 的 `component` 字段；`scope.sessionId` 来自 `SessionScope`（必填）。运行时仍用 `ctx.get('betterSidebar')`（该底座可选，缺失时降级到 `memory_review`），但 descriptor 与组件 props 的类型 `import type` 自 `dsh-better-sidebar`（仅 devDependency，不进发布清单）：字段改名会在 `npm run typecheck` 立刻报错，不再靠猜。官方 DSH 另有 `ctx.slots` 的 `sidebar.footer.action`（侧边栏底部的动作项，不是标签页），两者别混用。
+- **侧边栏 Tab 走 `registerTab`，类型用官方声明**：待审页是一个完整的侧边栏标签页（有自己的面板内容与 `+` 菜单项），注册到 `dsh-better-sidebar`（上游 `omdsh-dev/DSH-better-sidebar`）的 `ctx.betterSidebar.registerTab(TabDescriptor)`，`SidebarTab` 的内容渲染器就是 descriptor 的 `component` 字段；`scope.sessionId` 来自 `SessionScope`（必填）。运行时仍用 `ctx.get('betterSidebar')`（该底座可选，缺失时降级到 `memory_review`），但 descriptor 与组件 props 的类型 `import type` 自 `dsh-better-sidebar`（仅 devDependency，不进发布清单）：字段改名会在 `pnpm run typecheck` 立刻报错，不再靠猜。官方 DSH 另有 `ctx.slots` 的 `sidebar.footer.action`（侧边栏底部的动作项，不是标签页），两者别混用。
 - **依赖未满足 = 静默挂起**：cordis 不会因 `inject` 缺失报错，只会把插件挂起——症状是"服务不存在"（实测漏注册 `@deepseek-ai/dsh-system-prompt` 时 `ToolRuntime` 不发布，`ctx.tools` 为 undefined）。测试 harness 按依赖顺序注册；排查先看 `inject` 链，别先怀疑工具写错。
 - **client 产物必须过加载器契约**：宿主把 `lib/client.js` 字节**原样拼接**进 combo script，用**经典 `<script>`** 注入，产物必须自己调 `window.__ModuleLoader__.load({id, factory})`。所以 client 段只能是 `format: 'cjs'` + banner/footer/intro（照 `deepseek-harness/packages/client/tsdown.client.ts` 的包装），**不能是 ESM**——ESM 顶层 `import` 是硬 `SyntaxError`，会让整个 web boot 失败（实测 `crash-*-web-boot.log`：`web boot: 1 entry did not activate`）。
 - **boot 失败会触发宿主的破坏性恢复**：装载失败时 Electron 弹致命恢复对话框，其中"禁用第三方插件"按钮会调 `sanitizeProfile`——它把用户手写的 `cordis.patch.yml` **整体改名**成 `.bak-<epoch-ms>`，并把 `dsh.profile.bundles` **整体替换**成内置 web 模板（只剩 base + web-app）。即：一个插件装载失败，可能连带清掉其它所有插件。改 client/装配后务必先在本机装上验证，再宣告可用。
@@ -65,7 +65,7 @@ node scripts/check.mjs   # 规则骨架自检（技能 frontmatter / 笔记格�
 
 ## 变更自检与开发流程
 
-1. 改 `src/` 或配置：`npm run typecheck && npm test`。
-2. 改 bundle 装配或入口：额外跑 `npm run build`，确认生成 `lib/index.js`。
+1. 改 `src/` 或配置：`pnpm run typecheck && pnpm test`。
+2. 改 bundle 装配或入口：额外跑 `pnpm run build`，确认生成 `lib/index.js`。
 3. 改规则 / 技能 / 笔记：`node scripts/check.mjs`。
 4. 发版前按 `.agents/skills/memory-pre-push-checks/SKILL.md` 选最小检查集；tag 前确认 `cordis.patch.yml` 能被宿主解析。

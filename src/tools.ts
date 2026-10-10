@@ -14,6 +14,7 @@ import { buildBrief } from './brief.ts'
 import type { TraceLevel, Tracer } from './debug.ts'
 import { withTrace } from './debug.ts'
 import type { MemoryMetadata, MemoryRow, Mem0Client } from './mem0.ts'
+import type { PendingQueue } from './queue.ts'
 
 /** The client factory the tools use; resolving inside keeps the key out of long-lived state. */
 export interface ToolDeps {
@@ -21,6 +22,14 @@ export interface ToolDeps {
   client(): Promise<Mem0Client>
   /** Optional trace sink; the `memory_debug` tool reads the same ring. */
   tracer?: Tracer
+  /**
+   * The pending-review queue. When present, `memory_remember` submits
+   * candidates instead of writing mem0 directly — approval is a human act,
+   * and the queue dedupes before a human ever sees the entry. Built by the
+   * core component over the same directory the capture and review components
+   * use; absent only in stripped-down hosts.
+   */
+  queue?: PendingQueue
 }
 
 /** Metadata assembled from the scalar tool parameters. */
@@ -119,7 +128,7 @@ function toListItems(rows: readonly MemoryRow[]): ListItem[] {
 export function registerMemoryTools(ctx: Context, deps: ToolDeps): number {
   ctx.tools.register(defineTool({
     name: 'memory_remember',
-    description: '长期记忆：写入一条事实（默认保真写入，不做 LLM 改写）。用于记住用户明确表达、且跨会话仍然成立的偏好、约束、决策或工作方式。',
+    description: '长期记忆：提交一条事实到候审队列，人工批准后写入 Mem0。用于记住用户明确表达、且跨会话仍然成立的偏好、约束、决策或工作方式。队列会按文本去重；direct=true 时跳过待审直接写入（仅限用户明确要求立即入库时）。',
     parameters: {
       text: { type: 'string', required: true, description: '要记住的事实，一句话，保留用户原话中的关键措辞。' },
       category: { type: 'string', description: 'fact | preference | project | person | relation | decision | constraint | goal | workflow' },
@@ -127,23 +136,42 @@ export function registerMemoryTools(ctx: Context, deps: ToolDeps): number {
       importance: { type: 'string', description: 'permanent | long_term | temporary' },
       project: { type: 'string', description: 'scope=project 时的项目名。' },
       tags: { type: 'string', description: '逗号分隔的标签。' },
-      infer: { type: 'boolean', description: 'true 时交给服务端抽取改写（可能改写措辞）；默认 false 保真写入。' },
+      infer: { type: 'boolean', description: 'true 时交给服务端抽取改写（可能改写措辞）；默认 false 保真写入。仅 direct=true 时生效。' },
+      direct: { type: 'boolean', description: 'true 时跳过候审队列直接写入 Mem0；默认 false，先入队等人工批准。' },
     },
     output: {
       schema: LIST_SCHEMA,
-      render: (_args, value) => [{ type: 'text', text: `已写入 ${value.count} 条：\n${value.text}` }],
+      render: (_args, value) => [{ type: 'text', text: value.text }],
     },
     isConcurrencySafe: () => true,
     async execute(args) {
       return withTrace(deps.tracer, 'tool', 'memory_remember', async () => {
+        // Default door: the human-approved one. The queue dedupes by text, and
+        // the approval flow carries the assembled metadata into mem0 verbatim,
+        // so nothing is lost by waiting.
+        if (deps.queue !== undefined && args.direct !== true) {
+          const entry = await deps.queue.offer({
+            text: args.text,
+            metadata: metadataFrom(args),
+            evidence: 'memory_remember 工具提交，等待人工批准',
+            confidence: 1,
+          })
+          return {
+            count: entry === undefined ? 0 : 1,
+            memories: [],
+            text: entry === undefined
+              ? '该内容已在候审队列中，未重复提交；可在侧边栏「记忆待审」或 memory_review 里查看。'
+              : `已提交候审（id ${entry.id.slice(0, 8)}），人工批准后写入 Mem0；可在侧边栏「记忆待审」或 memory_review 里查看。`,
+          }
+        }
         const client = await deps.client()
         const rows = await client.remember({
           text: args.text,
           metadata: metadataFrom(args),
           infer: args.infer ?? false,
         })
-        return { count: rows.length, memories: toListItems(rows), text: renderRows(rows) }
-      }, (value) => ({ rows: value.count, infer: args.infer ?? false }))
+        return { count: rows.length, memories: toListItems(rows), text: `已写入 ${rows.length} 条：\n${renderRows(rows)}` }
+      }, (value) => ({ rows: value.count, direct: args.direct ?? false }))
     },
   }))
 

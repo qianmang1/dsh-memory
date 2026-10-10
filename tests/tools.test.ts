@@ -1,10 +1,14 @@
 import { strict as assert } from 'node:assert'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Mem0Error, type Mem0Client } from '../src/mem0.ts'
+import { createQueue, type PendingQueue } from '../src/queue.ts'
 import { registerMemoryTools } from '../src/tools.ts'
 
 /** Records what the tools asked for, so parameter plumbing is asserted, not assumed. */
@@ -48,6 +52,19 @@ async function harness(client: Mem0Client): Promise<Context> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   registerMemoryTools(ctx, { client: async () => client })
+  return ctx
+}
+
+/** A real queue over a throwaway directory; the queue module owns the locking. */
+async function mkQueue(): Promise<PendingQueue> {
+  return createQueue({ dir: await mkdtemp(join(tmpdir(), 'dsh-memory-tools-')), onEvent: () => {} })
+}
+
+async function harnessWithQueue(client: Mem0Client, queue: PendingQueue): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  registerMemoryTools(ctx, { client: async () => client, queue })
   return ctx
 }
 
@@ -95,6 +112,43 @@ describe('memory tools', () => {
     assert.equal(first['infer'], false)
     assert.deepEqual(first['metadata'], { category: 'preference', tags: ['a', 'b'] })
     assert.equal(second['infer'], true)
+  })
+
+  it('routes remember through the pending queue by default', async () => {
+    const recorder: Recorder = { calls: [] }
+    const queue = await mkQueue()
+    const ctx = await harnessWithQueue(stubClient(recorder), queue)
+    const result = await ctx.tools.execute(call('memory_remember', { text: '用户偏好 pnpm', category: 'preference' }))
+    assert.equal(result.isError, false)
+    // Nothing reached mem0: the write is pending a human decision.
+    assert.equal(recorder.calls.length, 0)
+    assert.match(textOf(result), /已提交候审/)
+    const entries = await queue.list()
+    assert.equal(entries.length, 1)
+    assert.equal(entries[0]?.text, '用户偏好 pnpm')
+    assert.equal(entries[0]?.metadata['category'], 'preference')
+    assert.equal(entries[0]?.confidence, 1)
+    assert.equal(entries[0]?.status, 'pending')
+  })
+
+  it('dedupes a repeated remember through the queue', async () => {
+    const queue = await mkQueue()
+    const ctx = await harnessWithQueue(stubClient({ calls: [] }), queue)
+    await ctx.tools.execute(call('memory_remember', { text: '同一条事实' }))
+    const second = await ctx.tools.execute(call('memory_remember', { text: '同一条事实' }))
+    assert.match(textOf(second), /未重复提交/)
+    assert.equal((await queue.list()).length, 1)
+  })
+
+  it('still writes directly when direct=true even with a queue', async () => {
+    const recorder: Recorder = { calls: [] }
+    const queue = await mkQueue()
+    const ctx = await harnessWithQueue(stubClient(recorder), queue)
+    const result = await ctx.tools.execute(call('memory_remember', { text: '急事直写', direct: true }))
+    assert.equal(result.isError, false)
+    assert.match(textOf(result), /已写入/)
+    assert.equal(recorder.calls.length, 1)
+    assert.equal((await queue.list()).length, 0)
   })
 
   it('reports a missing id as text rather than an error', async () => {
