@@ -1,0 +1,38 @@
+name: 💡 功能建议
+description: 新工具、新召回策略、UI 改进等想法
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么问题
+      description: 先说痛点，再说方案——问题往往比方案更重要
+      placeholder: "每天产生的候选太多，逐条审批很累……"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的方案
+      placeholder: "希望 review 页支持一键全选 + 批量批准，且批量操作有二次确认"
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 改动范围预估
+      options:
+        - "纯配置 / patch 可解决"
+        - "单个组件内的小改动"
+        - "跨组件 / 需要设计讨论"
+        - "说不清，想先讨论"
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: 设计约束确认
+      description: 本项目的两条硬边界，建议先读 README
+      options:
+        - label: 我知道写入落库必须过人工审批闸门（自动落库类建议不会被接受）
+        - label: 我知道红线是绝不删/移/改用户数据

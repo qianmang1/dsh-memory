@@ -1,0 +1,64 @@
+name: 🐛 Bug 报告
+description: 记忆工具行为不符合预期、召回不准、待审队列异常等
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请先确认：
+        - 已升级到最新 tag（`dsh plugin update` 或重新安装）
+        - `debug` 组件已开启（`debugLog: true`），追踪日志能大幅加快定位
+  - type: dropdown
+    id: component
+    attributes:
+      label: 涉及组件
+      description: 哪个组件出的问题？（都不确定就选 core）
+      options:
+        - "core（工具面：memory_* 六工具）"
+        - "recall（自动召回 / SessionStart 注入）"
+        - "capture（Stop 候选捕获）"
+        - "review（待审队列 / 右侧栏审批页）"
+        - "debug（自检报告 / 追踪日志）"
+        - "client（Web UI 卡片渲染）"
+        - "不确定 / 多个组件"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 插件版本
+      description: tag 号，如 v0.3.9
+      placeholder: "v0.3.9"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 期望行为 vs 实际行为，尽量具体
+      placeholder: "调用 memory_remember 后，审批页里没有出现这条候选……"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 开启 capture 组件，阈值 0.6
+        2. 对话中说出「记住我喜欢 X」
+        3. 打开右侧栏「记忆待审」
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: debug 追踪日志、宿主日志片段。⚠️ 凭据（API key / token）一律打码
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 自查
+      options:
+        - label: 我已确认日志中不含任何凭据
+        - label: pendingDir 三处以上配置一致（如涉及待审队列）
