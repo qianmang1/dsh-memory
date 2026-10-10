@@ -49,6 +49,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "dev:client": "tsdown --watch --config tsdown.client.config.ts",
     "prepack": "tsdown",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --import tsx --test \"tests/**/*.test.ts\""
