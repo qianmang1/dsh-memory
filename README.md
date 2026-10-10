@@ -14,15 +14,15 @@ DSH（DeepSeek Harness）的长期记忆插件：把自托管 mem0 接进 DSH �
   | `memory-review` | `dsh-memory/review` | `memory_review` 工具 + 侧边栏待审路由 | 人工审批入口消失（队列文件保留） |
   | `memory-debug` | `dsh-memory/debug` | 追踪环闸门 + `memory_debug` 工具 + 启动自检 + NDJSON 落盘 | **全部组件的追踪输出即刻停止**，诊断工具下线 |
 
-- **工具面**：六个记忆工具（core）+ `memory_review`（review）+ `memory_debug`（debug，随组件开关上线下线）。
+- **工具面**：六个记忆工具（core）+ `memory_review`（review）+ `memory_debug`（debug，随组件开关上线下线）。`memory_remember` **默认提交候审队列**（人工批准后才写 mem0）；确需立即入库可传 `direct: true` 逃生门。
 - **自动召回**：SessionStart 注入按分类分组的摘要（≤1200 字符）；每个 prompt 按需检索 top-3（≤600 字符，低于阈值不注入）。
-- **候审队列**：Stop 把本轮候选事实写进 `$DSH_HOME/memory-pending/`，**批准后才落库**。
-- **侧边栏待审页**：装了 `dsh-better-sidebar` 时注册「记忆待审」Tab（读 `/memory/pending`）；未装时用 `memory_review` 工具。
+- **候审队列**：Stop 自动捕获的候选事实与 `memory_remember` 工具提交的条目都写进 `$DSH_HOME/memory-pending/`（文本去重），**批准后才落库**。
+- **侧边栏待审页**：注册进 DSH **原生右侧栏**（与官方「会话数据诊断」同一契约）——右栏「新标签页」→ 引导页点「记忆待审」。每条候选一张卡片：折叠两行省略、点击展开全文；分类/范围/置信度徽章全中文；批准/驳回走 `/memory/pending`，与 `memory_review` 工具共用同一决策流（去重 → supersede 或保真写入 → 记录）。
 - **技能**：内置写入规则（`skill/dsh-memory.md`），随包分发，经 `ctx.skills` 注册。
 - **运行时追踪**：钩子触发、mem0 请求（只记 method/状态/耗时/字节数，不记内容）、队列迁移、决策链路都进环形缓冲；`memory_debug` 工具随时可查（测试和排障用）。
 - **启动自检**：debug 模式下每次挂载逐模块输出状态日志（config / tools / skill / route / queue / tracer / credentials / mem0 连通）。
 
-**写入永不自动落库**：这个库曾被单日批量导入污染过一次（107 条冗余），自动写入必须留在人工闸门后面。Stop 只产候选，批准是一步显式动作。
+**写入永不自动落库**：这个库曾被单日批量导入污染过一次（107 条冗余），自动写入必须留在人工闸门后面。Stop 只产候选，`memory_remember` 也只入候审队列——批准是一步显式动作。
 
 ## 安装
 
@@ -89,12 +89,25 @@ dsh-memory [boot] 自检完成：N 模块（ok=… warn=… fail=1 skip=…）�
 ```sh
 npm install
 npm run typecheck        # tsc -p tsconfig.json
-npm test                 # node --import tsx --test（108 用例）
-npm run build            # tsdown：lib/{index,recall,capture,review,debug-plugin}.js（host 五入口）+ lib/client.js（client）
+npm test                 # node --import tsx --test（111 用例）
+npm run build            # tsdown：lib/{index,portal,core-plugin,recall,capture,review,debug-plugin}.js（host）+ lib/client.js（client 侧边栏）
 node scripts/check.mjs   # 规则骨架自检
 ```
 
+注意：host 构建**不清理** `lib/`（`clean: false`）——`lib/client.js` 与 host 产物同目录，early 版本曾因 clean 把 client 产物连带删掉，宿主报 `failed to import`。
+
 写路径的测试全部跑在本地 stub server 上；真 mem0 只做只读验证。设计与取舍见 [`.agents/notes/implemented/architecture/2026-10-08-dsh-memory-design.md`](.agents/notes/implemented/architecture/2026-10-08-dsh-memory-design.md)。
+
+## Web 开发迭代（HMR）
+
+侧边栏 UI 在 `dev/web-ui` 分支开发，web profile 用 `link:` 协议直通工作区：
+
+```sh
+# profile package.json: "dsh-memory": "link:D:/DSH_work/dsh-memory"（dependencies + dsh.profile.bundles 两处登记）
+pnpm dev:client   # watch lib/client.js，宿主 stat-poll 500ms 热替换，浏览器刷新即见
+```
+
+改 client 产物 → 刷新页面即可；改 `dsh.client.inject`（package.json）或 `cordis.patch.yml` → 必须重启宿主。宿主启动命令：`pnpm dsh web --no-open --port 3001`（在 dsh 源码检出内执行）。
 
 ## 从 Python MCP 桥迁移
 
