@@ -26,16 +26,26 @@ DSH（DeepSeek Harness）的长期记忆插件：把自托管 mem0 接进 DSH �
 
 ## 安装
 
-`desktop` profile（Electron 宿主）只能经 GUI 的插件入口安装 —— CLI 会拒绝：
+两个 profile 都能命令行装，但 **`dsh` 入口不同**：
+
+**desktop（Electron 宿主）**——用**桌面版自带的** CLI（它带 Desktop 内置 pnpm，且被允许管理 desktop profile）：
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:qianmang1/dsh-memory
+```
+
+⚠️ npm 全局的 `dsh` 和源码检出的 `pnpm dsh` 都是 launcher CLI，会被拒绝：
 
 ```
 error: profile "desktop" is managed exclusively by the Electron application
 ```
 
-非 Electron profile（如 `web`）用 CLI（它内部就是 pnpm）：
+这个守卫只拦 launcher——防止源码运行时去碰桌面 profile 的路径与依赖；桌面安装自带的入口不受限。
+
+**web 等非 Electron profile**——任意 `dsh` 入口均可（内部就是 pnpm）：
 
 ```sh
-cd ~/.dsh && dsh plugin --profile web add <spec>
+cd ~/.dsh && dsh plugin --profile web add github:qianmang1/dsh-memory
 ```
 
 本地开发时也可以直接把 profile 依赖指向工作区（`file:`）+ 手工 `pnpm install`，再重启宿主。
