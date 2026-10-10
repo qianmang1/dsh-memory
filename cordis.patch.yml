@@ -5,8 +5,9 @@
 # memory-debug mounts first so the boot reporter exists before the siblings
 # report their own mount lines. Deployment-varying values live in each row's
 # config; the API key is resolved through ctx.credentials, never written here.
-# `pendingDir` must stay identical across capture / review / debug (empty
-# means $DSH_HOME/memory-pending for all three).
+# `pendingDir` must stay identical across capture / review / core / debug (all
+# default to $DSH_HOME/memory-pending; core needs it since memory_remember
+# started submitting to the queue).
 #
 # The bare `dsh-memory` row is NOT a ninth component: the web client-module
 # scanner only resolves client halves from loader rows named as a bare package
@@ -24,6 +25,7 @@
       config:
         baseUrl: ''
         userId: ''
+        pendingDir: ''
     - id: memory-recall
       name: dsh-memory/recall
       config:

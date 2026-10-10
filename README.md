@@ -43,14 +43,15 @@ cd ~/.dsh && dsh plugin --profile web add <spec>
 ## 配置
 
 ```yaml
-# 每个组件一行，独立开关；pendingDir 三处必须一致（空 = $DSH_HOME/memory-pending）
+# 每个组件一行，独立开关；pendingDir 四处必须一致（空 = $DSH_HOME/memory-pending）。
+# debug 行排第一：兄弟组件的启动自检状态行要赶得上汇总。
 - insert:
     - id: memory-debug
       name: dsh-memory/debug
       config: { debugLog: false, pendingDir: '' }
     - id: memory-core
-      name: dsh-memory
-      config: { baseUrl: '', userId: '' }
+      name: dsh-memory/core
+      config: { baseUrl: '', userId: '', pendingDir: '' }
     - id: memory-recall
       name: dsh-memory/recall
       config: { baseUrl: '', userId: '', brief: true, recall: true }
