@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Memory System",
+    "title": "dsh-memory",
     "description": "Long-term memory for sessions: tools to save, search, and organize memories, plus optional recall, capture, review, and debug components."
   }
 }
