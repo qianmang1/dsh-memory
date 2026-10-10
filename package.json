@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "DeepSeek Harness 长期记忆插件：TS 直连自托管 mem0，提供记忆工具、SessionStart 自动召回、Stop 候审队列与侧边栏待审页。",
   "type": "module",
   "main": "lib/portal.js",

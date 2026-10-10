@@ -62,6 +62,32 @@ async function requestJson(url: string, init?: RequestInit): Promise<PendingPayl
 
 const shortId = (id: string): string => id.slice(0, 6)
 
+/** Chinese labels for the metadata enums the queue carries. */
+const CATEGORY_LABELS: Record<string, string> = {
+  fact: '事实',
+  preference: '偏好',
+  project: '项目',
+  person: '人物',
+  relation: '关系',
+  decision: '决策',
+  constraint: '约束',
+  goal: '目标',
+  workflow: '工作流',
+}
+const SCOPE_LABELS: Record<string, string> = { user: '用户', project: '项目', agent: 'Agent', session: '会话' }
+const IMPORTANCE_LABELS: Record<string, string> = { permanent: '永久', long_term: '长期', temporary: '临时' }
+const enumLabel = (map: Record<string, string>, key: string): string => map[key] ?? key
+
+/** The metadata slice this tab renders, with raw strings normalized away. */
+function entryMeta(entry: PendingEntryView): { category: string; scope?: string; importance?: string } {
+  const meta = entry.metadata ?? {}
+  return {
+    category: String(meta['category'] ?? ''),
+    scope: meta['scope'] === undefined ? undefined : String(meta['scope']),
+    importance: meta['importance'] === undefined ? undefined : String(meta['importance']),
+  }
+}
+
 /** Colors for the confidence bar, keyed off the --dsw state aliases. */
 function confidenceColor(confidence: number): string {
   if (confidence >= 0.8) return 'var(--dsw-alias-state-success-primary)'
@@ -80,13 +106,31 @@ const styles = {
   notice: { color: 'var(--dsw-alias-label-secondary)', marginBottom: '8px' },
   filterRow: { marginBottom: '10px' },
   list: { listStyle: 'none', padding: 0, margin: 0 },
-  item: { borderBottom: '1px solid var(--dsw-alias-border-l2)', padding: '10px 0' },
-  itemText: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const, marginBottom: '4px' },
-  metaRow: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', marginBottom: '6px' },
+  card: {
+    border: '1px solid var(--dsw-alias-border-l2)',
+    borderRadius: 'var(--dsw-radius-md, 8px)',
+    background: 'var(--dsw-alias-bg-layer-2)',
+    padding: '10px 12px',
+    marginBottom: '8px',
+  },
+  cardHeader: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', cursor: 'pointer' as const, userSelect: 'none' as const },
+  chevron: {
+    display: 'inline-block', flexShrink: 0, fontSize: '10px', color: 'var(--dsw-alias-label-tertiary)',
+    transition: 'transform 0.15s ease',
+  },
+  itemText: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const, marginBottom: '6px', cursor: 'pointer' as const },
+  clamp: {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical' as const,
+    WebkitLineClamp: 2,
+    overflow: 'hidden',
+  },
+  footer: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', marginBottom: '8px' },
   track: {
     width: '56px', height: '4px', borderRadius: 'var(--dsw-radius-sm)',
     background: 'var(--dsw-alias-border-l4)', overflow: 'hidden', flexShrink: 0,
   },
+  evidence: { color: 'var(--dsw-alias-label-tertiary)', fontSize: '12px', marginBottom: '8px' },
   actions: { display: 'flex', gap: '8px' },
   empty: { padding: '24px 0', textAlign: 'center' as const },
 }
@@ -112,7 +156,8 @@ export function usePendingQueue(): {
     try {
       const payload = await requestJson(PENDING_ENDPOINT)
       setEntries(payload.entries ?? [])
-      setMessage(payload.text)
+      // payload.text is the machine-oriented queue summary; the card list
+      // below already shows everything it says, so it is not rendered.
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error))
     } finally {
@@ -160,18 +205,34 @@ export type MemoryTabProps = { injected?: MemoryInjected }
 export function MemoryPendingTab({ injected }: MemoryTabProps): ReactNode {
   const { entries, message, busy, refresh, decide } = usePendingQueue()
   const [filter, setFilter] = useState<string>('all')
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const session = injected?.sessionId
+
+  const toggle = useCallback((id: string) => {
+    setExpanded((previous) => {
+      const next = new Set(previous)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const categories = useMemo(() => {
     const set = new Set<string>()
     for (const entry of entries) {
-      set.add(String(entry.metadata?.['category'] ?? '未分类'))
+      const meta = entryMeta(entry)
+      set.add(meta.category === '' ? '未分类' : meta.category)
     }
     return [...set].sort()
   }, [entries])
 
   const visible = useMemo(
-    () => filter === 'all' ? entries : entries.filter((entry) => String(entry.metadata?.['category'] ?? '未分类') === filter),
+    () => filter === 'all'
+      ? entries
+      : entries.filter((entry) => {
+        const meta = entryMeta(entry)
+        return (meta.category === '' ? '未分类' : meta.category) === filter
+      }),
     [entries, filter],
   )
 
@@ -180,7 +241,7 @@ export function MemoryPendingTab({ injected }: MemoryTabProps): ReactNode {
       { value: 'all', label: `全部 ${entries.length}`, id: 'dsh-memory-tab-all', panelId: 'dsh-memory-panel-all' },
       ...categories.map((category) => ({
         value: category,
-        label: category,
+        label: enumLabel(CATEGORY_LABELS, category),
         id: `dsh-memory-tab-${category}`,
         panelId: `dsh-memory-panel-${category}`,
       })),
@@ -196,7 +257,6 @@ export function MemoryPendingTab({ injected }: MemoryTabProps): ReactNode {
         <div style={styles.spacer} />
         <Button variant="ghost" size="sm" onClick={() => { void refresh() }} disabled={busy}>刷新</Button>
       </div>
-      {session === undefined ? null : <div style={{ ...styles.quiet, marginBottom: '8px' }}>会话 {session.slice(0, 8)}</div>}
       {message === undefined ? null : <div style={styles.notice}>{message}</div>}
       {categories.length > 1 ? (
         <div style={styles.filterRow}>
@@ -215,24 +275,42 @@ export function MemoryPendingTab({ injected }: MemoryTabProps): ReactNode {
       ) : (
         <ul style={styles.list}>
           {visible.map((entry) => {
-            const category = String(entry.metadata?.['category'] ?? '未分类')
+            const meta = entryMeta(entry)
+            const isExpanded = expanded.has(entry.id)
+            const percent = Math.round(Math.min(Math.max(entry.confidence, 0), 1) * 100)
+            const scopeText = [meta.scope && enumLabel(SCOPE_LABELS, meta.scope), meta.importance && enumLabel(IMPORTANCE_LABELS, meta.importance)]
+              .filter((part) => typeof part === 'string').join(' · ')
             return (
-              <li key={entry.id} style={styles.item}>
-                <div style={styles.itemText}>{entry.text}</div>
-                <div style={styles.metaRow}>
-                  <Tag tone="neutral">{category}</Tag>
-                  <span style={styles.quiet} title={`置信度 ${entry.confidence.toFixed(2)}`}>{shortId(entry.id)}</span>
-                  <div style={styles.track} title={`置信度 ${entry.confidence.toFixed(2)}`}>
+              <li key={entry.id} style={styles.card}>
+                <div style={styles.cardHeader} onClick={() => toggle(entry.id)}>
+                  <Tag tone="neutral">{meta.category === '' ? '未分类' : enumLabel(CATEGORY_LABELS, meta.category)}</Tag>
+                  {scopeText === '' ? null : <span style={styles.quiet}>{scopeText}</span>}
+                  <div style={styles.spacer} />
+                  <span
+                    style={{ ...styles.chevron, transform: isExpanded ? 'rotate(90deg)' : 'none' }}
+                    aria-expanded={isExpanded}
+                  >▶</span>
+                </div>
+                <div
+                  style={{ ...styles.itemText, ...(isExpanded ? {} : styles.clamp) }}
+                  onClick={() => toggle(entry.id)}
+                  title={isExpanded ? '点击折叠' : '点击展开全文'}
+                >
+                  {entry.text}
+                </div>
+                <div style={styles.footer}>
+                  <span style={styles.quiet} title={`条目 ID：${entry.id}（日志排查用）`}>#{shortId(entry.id)}</span>
+                  <div style={styles.track} title={`置信度 ${percent}%`}>
                     <div style={{
-                      width: `${Math.round(Math.min(Math.max(entry.confidence, 0), 1) * 100)}%`,
+                      width: `${percent}%`,
                       height: '100%',
                       background: confidenceColor(entry.confidence),
                     }} />
                   </div>
-                  <span style={styles.quiet}>conf {entry.confidence.toFixed(2)}</span>
+                  <span style={styles.quiet}>置信度 {percent}%</span>
                 </div>
-                {entry.evidence === undefined ? null : (
-                  <div style={{ ...styles.quiet, fontSize: '12px', marginBottom: '6px' }}>证据：{entry.evidence}</div>
+                {isExpanded && entry.evidence === undefined ? null : (
+                  <div style={styles.evidence}>来源：{entry.evidence}</div>
                 )}
                 <div style={styles.actions}>
                   <Button variant="primary" size="sm" disabled={busy} onClick={() => { void decide(entry.id, 'approve') }}>批准</Button>

@@ -17,12 +17,12 @@ describe('pending tab', () => {
     assert.match(html, /刷新/)
   })
 
-  it('shows which session the queue belongs to', () => {
+  it('keeps the session id out of the visible chrome', () => {
+    // The session id is plumbing (it arrives via the pane inject callback);
+    // showing a raw `sess-…` value confused readers, so the chrome no longer
+    // prints it.
     const html = renderToString(createElement(MemoryPendingTab, { injected: { sessionId: 'sess-abcdef12' } }))
-    // Server rendering inserts `<!-- -->` between text nodes, so assert on the
-    // pieces rather than the joined sentence.
-    assert.match(html, /会话/)
-    assert.match(html, /sess-abc/)
+    assert.doesNotMatch(html, /sess-abc/)
   })
 
   it('renders without an injected session', () => {
