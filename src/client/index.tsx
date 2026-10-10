@@ -1,28 +1,27 @@
 /**
- * The sidebar tab — the review queue's UI door.
+ * The sidebar tab — the review queue's UI door, on the native right sidebar.
  *
  * It talks to the host route (`/memory/pending`) rather than the queue files:
  * the browser side has no filesystem, and the route is where approve/dismiss
  * reuse the same decision flow as the tool.
  *
+ * Registration follows the first-party right-sidebar contract (the same path
+ * the bundled session inspector takes): `ctx.sidebarRightTabs.register`
+ * declares the tab type, and a keyed slot under `sidebar.right.pane.tab`
+ * supplies the body — the slot key must equal the definition's `id`. The
+ * earlier dsh-better-sidebar route never rendered on the web host: the module
+ * loaded and applied fine, but the third-party tab never surfaced in that
+ * panel, so this module now rides the native slot system instead.
+ *
  * Visuals come from `@deepseek-ai/dsh-client-ui-primitives` (host-supplied at
  * runtime — see vendor-types.d.ts and the client build's neverBundle) and
  * `--dsw-*` alias tokens, so the tab follows the active theme instead of
  * hard-coding colors.
- *
- * Registration follows the ecosystem contract from dsh-better-sidebar's
- * README: the module declares `inject = ['betterSidebar']`, so cordis holds
- * this client plugin back until the sidebar has provided its service — its
- * own activation is async (lazy chunks, panel mount), so a same-tick
- * `ctx.get` would race it and lose (observed: `undefined` → silent no-tab).
- * A host without the sidebar keeps the tools, hooks, and queue untouched:
- * they are server-side; this client plugin just stays pending, which the
- * runtime reports as a warning, not an error.
  * @module dsh-memory/client
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { TabComponentProps, TabDescriptor } from 'dsh-better-sidebar'
+import type { Context } from '@deepseek-ai/cordis'
 import { Button, SegmentedTabs, Tag, TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 
@@ -48,6 +47,11 @@ const PENDING_ENDPOINT = '/memory/pending'
 
 /** Poll cadence for the queue; the tab only refreshes while visible. */
 const POLL_MS = 15_000
+
+/** Tab identity: the slot key under `sidebar.right.pane.tab` equals this id. */
+const TAB_ID = 'dsh-memory'
+/** Type discriminator used by `openTab` and the guide page. */
+const TAB_KIND = 'dsh-memory-pending'
 
 async function requestJson(url: string, init?: RequestInit): Promise<PendingPayload> {
   const response = await fetch(url, init)
@@ -144,21 +148,19 @@ export function usePendingQueue(): {
   return { entries, message, busy, refresh, decide }
 }
 
-/**
- * Props every sidebar tab receives, narrowed to what this tab reads.
- *
- * Typed against the sidebar's own declaration so a field rename in
- * `dsh-better-sidebar` fails `npm run typecheck` instead of silently rendering
- * an empty value. `SessionScope.sessionId` is required there; this component
- * treats it as optional because `scope` arrives from the host at render time.
- */
-export type TabProps = Pick<TabComponentProps, 'scope'>
+/** What the pane's inject callback hands the body: the owning Session id. */
+export interface MemoryInjected {
+  sessionId?: string
+}
+
+/** Props the slot system assembles for the tab body. */
+export type MemoryTabProps = { injected?: MemoryInjected }
 
 /** The registered tab body. */
-export function MemoryPendingTab({ scope }: TabProps): ReactNode {
+export function MemoryPendingTab({ injected }: MemoryTabProps): ReactNode {
   const { entries, message, busy, refresh, decide } = usePendingQueue()
   const [filter, setFilter] = useState<string>('all')
-  const session = scope?.sessionId
+  const session = injected?.sessionId
 
   const categories = useMemo(() => {
     const set = new Set<string>()
@@ -245,47 +247,58 @@ export function MemoryPendingTab({ scope }: TabProps): ReactNode {
   )
 }
 
-/** The `ctx.betterSidebar` surface this module uses, from the sidebar's own types. */
-type SidebarService = {
-  registerTab(descriptor: TabDescriptor): () => void
+/**
+ * Narrow faces of the two first-party services this module touches, matching
+ * the shapes used by the bundled session inspector. Kept structural (instead
+ * of importing the packages) so the published manifest carries no hard
+ * dependency on internal UI packages.
+ */
+interface SidebarRightTabsService {
+  register(definition: {
+    id: string
+    kind: string
+    title: (address: string) => string
+    guide?: readonly { id: string; order: number; title: () => string; description: () => string }[]
+  }): () => void
 }
 
-/** The client context surface this module touches. */
-export interface ClientHost {
-  betterSidebar?: SidebarService
-  get?(key: string): unknown
-  effect?(register: () => () => void, name?: string): unknown
-  logger?: { warn?(message: string): unknown }
+interface SlotsService {
+  inject(name: string, factory: () => unknown): unknown
+  register(options: Record<string, unknown>, component: unknown): () => void
 }
+
+/** cordis services required to register the sidebar tab. */
+export const inject = ['slots', 'sidebarRightTabs']
 
 export const name = 'memory-tab'
 
 /**
- * Ecosystem contract: wait for the sidebar's service instead of racing it.
- * cordis only runs `apply` once every injected key is provided.
+ * Register the tab on the native right sidebar for this plugin's lifetime.
+ * @param ctx Client plugin context.
  */
-export const inject = ['betterSidebar']
-
-/**
- * Register the tab once the sidebar service is available.
- * @param ctx Client context.
- */
-export function apply(ctx: ClientHost): void {
-  const sidebar = ctx.betterSidebar
-  if (typeof sidebar?.registerTab !== 'function') {
-    ctx.logger?.warn?.('dsh-memory: betterSidebar 服务缺失，待审 Tab 未注册')
+export function apply(ctx: Context): void {
+  const faces = ctx as unknown as {
+    slots?: SlotsService
+    sidebarRightTabs?: SidebarRightTabsService
+    logger?: { warn?(message: string): unknown }
+  }
+  const { slots, sidebarRightTabs } = faces
+  if (slots === undefined || sidebarRightTabs === undefined) {
+    faces.logger?.warn?.('dsh-memory: slots/sidebarRightTabs 服务缺失，待审 Tab 未注册')
     return
   }
-  try {
-    const dispose = sidebar.registerTab({
-      id: 'dsh-memory:pending',
-      title: '记忆待审',
-      description: '候审的候选事实：批准后写入 mem0，驳回后不再询问。',
-      order: 60,
-      component: MemoryPendingTab,
-    })
-    ctx.effect?.(() => dispose, 'dsh-memory: pending tab')
-  } catch (error) {
-    ctx.logger?.warn?.(`dsh-memory: 待审 Tab 注册失败: ${error instanceof Error ? error.message : String(error)}`)
-  }
+  ctx.effect(() => sidebarRightTabs.register({
+    id: TAB_ID,
+    kind: TAB_KIND,
+    title: () => '记忆待审',
+    guide: [{
+      id: 'open', order: 60, title: () => '记忆待审',
+      description: () => '候审的候选事实：批准后写入 mem0，驳回后不再询问。',
+    }],
+  }), 'dsh-memory: sidebar tab')
+  slots.inject('sidebar.right.pane.tab', () => slots.register({
+    name: 'sidebar.right.pane.tab',
+    key: TAB_ID,
+    inject: (sessionId: string): MemoryInjected => ({ sessionId }),
+  }, MemoryPendingTab))
 }

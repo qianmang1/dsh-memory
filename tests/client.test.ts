@@ -12,60 +12,70 @@ describe('pending tab', () => {
   it('renders its chrome before any data arrives', () => {
     // react-dom/server runs the component body without effects, which is the one
     // thing verifiable outside a browser: the tab must survive having no data.
-    // `scope` is required by the sidebar's own TabComponentProps, so the fixture
-    // supplies the host-shaped value rather than an empty object.
-    const html = renderToString(createElement(MemoryPendingTab, { scope: { sessionId: 'sess-abcdef12' } }))
+    const html = renderToString(createElement(MemoryPendingTab, { injected: { sessionId: 'sess-abcdef12' } }))
     assert.match(html, /记忆待审/)
     assert.match(html, /刷新/)
   })
 
   it('shows which session the queue belongs to', () => {
-    const html = renderToString(createElement(MemoryPendingTab, { scope: { sessionId: 'sess-abcdef12' } }))
+    const html = renderToString(createElement(MemoryPendingTab, { injected: { sessionId: 'sess-abcdef12' } }))
     // Server rendering inserts `<!-- -->` between text nodes, so assert on the
     // pieces rather than the joined sentence.
     assert.match(html, /会话/)
     assert.match(html, /sess-abc/)
   })
 
-  it('ignores the scope fields it does not render', () => {
-    // SessionScope carries cwd/repoRoot as well; a tab that only reads sessionId
-    // must stay indifferent to them.
-    const html = renderToString(createElement(MemoryPendingTab, {
-      scope: { sessionId: 'sess-abcdef12', cwd: 'D:\\DSH_work', repoRoot: 'D:\\DSH_work' },
-    }))
+  it('renders without an injected session', () => {
+    // The pane hands down the Session id through the inject callback; a body
+    // that misses it must still render the queue chrome.
+    const html = renderToString(createElement(MemoryPendingTab, {}))
     assert.match(html, /记忆待审/)
-    assert.doesNotMatch(html, /DSH_work/)
+    assert.doesNotMatch(html, /sess-abc/)
   })
 
-  it('is a no-op on a client without the sidebar service', () => {
-    // With `inject = ['betterSidebar']` a real host would never call apply in
-    // this situation; the guard is defense-in-depth for hand-rolled callers.
-    assert.doesNotThrow(() => { apply({}) })
-    assert.doesNotThrow(() => { apply({ betterSidebar: undefined as never }) })
+  it('is a no-op on a client without the native sidebar services', () => {
+    // With `inject = ['slots', 'sidebarRightTabs']` a real host would never
+    // call apply in this situation; the guard is defense-in-depth for
+    // hand-rolled callers.
+    assert.doesNotThrow(() => { apply({} as never) })
   })
 
-  it('registers one tab and disposes it with the context', () => {
-    // TabDescriptor.title may be a string or a lazy () => string; the fixture
-    // records whichever shape arrives.
-    const tabs: Array<{ id: string; title: string | (() => string); order?: number; component: unknown }> = []
-    let disposed = false
+  it('registers the tab type and the keyed pane slot', () => {
+    const tabs: Array<{ id: string; kind: string }> = []
+    const slotRegisters: Array<{ name: string; key?: string }> = []
+    const slotInjects: Array<{ name: string }> = []
     const effects: Array<() => void> = []
+    let disposed = false
     apply({
-      // apply reads the service off the context: inject guarantees presence,
-      // the fixture plays the host that has already provided it.
-      betterSidebar: {
-        registerTab: (tab: { id: string; title: string | (() => string); order?: number; component: unknown }) => {
-          tabs.push(tab)
+      sidebarRightTabs: {
+        register: (definition: { id: string; kind: string }) => {
+          tabs.push(definition)
           return () => { disposed = true }
         },
       },
+      slots: {
+        inject: (name: string, factory: () => unknown) => {
+          slotInjects.push({ name })
+          factory()
+        },
+        register: (options: { name: string; key?: string }) => {
+          slotRegisters.push(options)
+          return () => {}
+        },
+      },
       effect: (register: () => () => void) => { effects.push(register()) },
-    })
+    } as never)
 
     assert.equal(tabs.length, 1)
-    assert.equal(tabs[0]?.id, 'dsh-memory:pending')
-    assert.equal(tabs[0]?.title, '记忆待审')
-    assert.equal(typeof tabs[0]?.component, 'function')
+    assert.equal(tabs[0]?.id, 'dsh-memory')
+    assert.equal(tabs[0]?.kind, 'dsh-memory-pending')
+
+    // The body rides the first-party pane seat, keyed by the definition id.
+    assert.equal(slotInjects.length, 1)
+    assert.equal(slotInjects[0]?.name, 'sidebar.right.pane.tab')
+    assert.equal(slotRegisters.length, 1)
+    assert.equal(slotRegisters[0]?.name, 'sidebar.right.pane.tab')
+    assert.equal(slotRegisters[0]?.key, 'dsh-memory')
 
     for (const dispose of effects) dispose()
     assert.equal(disposed, true, 'the tab must not outlive its context')
