@@ -14,7 +14,7 @@
         debugLog: false
         pendingDir: ''
     - id: memory-core
-      name: dsh-memory
+      name: dsh-memory/core
       config:
         baseUrl: ''
         userId: ''

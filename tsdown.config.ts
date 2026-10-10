@@ -22,6 +22,7 @@ export default defineConfig([
     name: 'host',
     entry: {
       index: 'src/index.ts',
+      'core-plugin': 'src/core-plugin.ts',
       recall: 'src/recall-plugin.ts',
       capture: 'src/capture-plugin.ts',
       review: 'src/review-plugin.ts',
