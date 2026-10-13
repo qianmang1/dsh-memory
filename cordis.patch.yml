@@ -32,7 +32,6 @@
         baseUrl: ''
         userId: ''
         brief: true
-        recall: true
     - id: memory-capture
       name: dsh-memory/capture
       config:

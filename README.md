@@ -9,13 +9,13 @@ DSH（DeepSeek Harness）的长期记忆插件：把自托管 mem0 接进 DSH �
   | 组件 | 入口 | 职责 | 关掉后 |
   |---|---|---|---|
   | `memory-core` | `dsh-memory` | 六个记忆工具 + 技能规则 | 模型失去全部 memory_* 工具 |
-  | `memory-recall` | `dsh-memory/recall` | SessionStart 摘要注入 + 每步召回注入 | 不再向上下文注入任何记忆 |
+  | `memory-recall` | `dsh-memory/recall` | SessionStart 摘要注入（brief） | 不再向上下文注入任何记忆 |
   | `memory-capture` | `dsh-memory/capture` | Stop 捕获候选事实 → 候审队列 | 本轮对话不再产生候选 |
   | `memory-review` | `dsh-memory/review` | `memory_review` 工具 + 侧边栏待审路由 | 人工审批入口消失（队列文件保留） |
   | `memory-debug` | `dsh-memory/debug` | 追踪环闸门 + `memory_debug` 工具 + 启动自检 + NDJSON 落盘 | **全部组件的追踪输出即刻停止**，诊断工具下线 |
 
 - **工具面**：六个记忆工具（core）+ `memory_review`（review）+ `memory_debug`（debug，随组件开关上线下线）。`memory_remember` **默认提交候审队列**（人工批准后才写 mem0）；确需立即入库可传 `direct: true` 逃生门。
-- **自动召回**：SessionStart 注入按分类分组的摘要（≤1200 字符）；每个 prompt 按需检索 top-3（≤600 字符，低于阈值不注入）。
+- **自动召回**：SessionStart 注入按分类分组的摘要（≤1200 字符）。需要按当前问题检索时用 `memory_recall` 工具；**没有每步注入**——此前 `agent/pre-step` 的注入会成为下一步自己的输入并自我延续（实测 67 次注入 / 65 步，其中 13 步只有文本回复），已整段移除。
 - **候审队列**：Stop 自动捕获的候选事实与 `memory_remember` 工具提交的条目都写进 `$DSH_HOME/memory-pending/`（文本去重），**批准后才落库**。
 - **侧边栏待审页**：注册进 DSH **原生右侧栏**（与官方「会话数据诊断」同一契约）——右栏「新标签页」→ 引导页点「记忆待审」。每条候选一张卡片：折叠两行省略、点击展开全文；分类/范围/置信度徽章全中文；批准/驳回走 `/memory/pending`，与 `memory_review` 工具共用同一决策流（去重 → supersede 或保真写入 → 记录）。
 - **技能**：内置写入规则（`skill/dsh-memory.md`），随包分发，经 `ctx.skills` 注册。
@@ -64,7 +64,7 @@ cd ~/.dsh && dsh plugin --profile web add github:qianmang1/dsh-memory
       config: { baseUrl: '', userId: '', pendingDir: '' }
     - id: memory-recall
       name: dsh-memory/recall
-      config: { baseUrl: '', userId: '', brief: true, recall: true }
+      config: { baseUrl: '', userId: '', brief: true }
     - id: memory-capture
       name: dsh-memory/capture
       config: { pendingDir: '', captureThreshold: 0.6, maxPerTurn: 5, pendingTtlDays: 7 }

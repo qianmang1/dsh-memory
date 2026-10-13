@@ -23,12 +23,14 @@ describe('Config', () => {
     assert.equal(config.userId, 'someone')
   })
 
-  it('recall turns brief and recall injection on by default', () => {
+  it('recall injects the SessionStart brief and nothing per step', () => {
     const config = new RecallConfig({})
     assert.equal(config.brief, true)
-    assert.equal(config.recall, true)
     const off = new RecallConfig({ brief: false })
     assert.equal(off.brief, false)
+    // The per-step `recall` flag is gone with the hook it gated; an empty
+    // config must not resurrect it.
+    assert.equal('recall' in config, false)
   })
 
   it('capture defaults to the design thresholds and a 7-day TTL', () => {

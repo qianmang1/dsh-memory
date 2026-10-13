@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Session Recall",
-    "description": "On session start, retrieve relevant memories for the current context and inject them into the system prompt."
+    "description": "On session creation, inject the grouped long-term memory brief. Nothing is injected per step."
   }
 }
